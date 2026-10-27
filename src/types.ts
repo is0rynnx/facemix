@@ -55,7 +55,7 @@ export interface Recipe {
 
 }
 
-export interface Variant { id:string; name:string; sources:Source[]; recipe:Recipe; template?:Template; created:number; thumbnail?:string; }
+export interface Variant { kind?:'saved'|'recovery'; recoveryKey?:string; id:string; name:string; sources:Source[]; recipe:Recipe; template?:Template; created:number; thumbnail?:string; }
 
 export interface Project { schemaVersion:1; engineVersion?:number; id:string; name:string; template:Template; sources:Source[]; recipe:Recipe; variants:Variant[]; revision:number; }
 

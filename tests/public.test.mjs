@@ -34,7 +34,7 @@ test('checks the reference data and mesh geometry',async()=>{
  for(let i=0;i<sources.length;i++)for(let j=i+1;j<sources.length;j++)for(const weight of [.25,.5,.75])for(const hairControls of [false,true]){
   const p=F.withMeasuredDetail({schemaVersion:1,id:'test',name:'test',revision:0,sources:[{...sources[i],shapeWeight:1-weight},{...sources[j],shapeWeight:weight}],template:fixture.template,recipe:{...F.defaultRecipe(),earControls:false,hairControls},variants:[]});
   const mesh=await F.buildMesh({...p,size:256,quality:'preview'},()=>false);assert(!mesh.controls.diagnostics.some(d=>d.kind==='error'||d.code==='folded-cells'));assert(mesh.uvs.flat(2).every(Number.isFinite));
-  for(const point of p.template.points.filter(d=>d.region==='hair'))assert.equal(mesh.controls.ids.includes(point.id),hairControls);
+  for(const point of p.template.points.filter(d=>d.region==='hair'))assert.equal(mesh.controls.ids.includes(point.id),hairControls||point.id==='p41');
   assert.notEqual(F.geometrySignature(p),F.geometrySignature({...p,recipe:{...p.recipe,hairControls:!hairControls}}));
  }
 });

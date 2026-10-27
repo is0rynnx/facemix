@@ -2,6 +2,7 @@ import type {PointDefinition,Project,Recipe} from './types';
 
 /** One layout. The old mode field is ignored when reading legacy projects. */
 export function usesControl(def:Pick<PointDefinition,'region'>&Partial<Pick<PointDefinition,'id'>>,recipe:Pick<Recipe,'earControls'|'hairControls'>):boolean{
+ if(def.id==='p41')return true;
  if(def.region==='hair')return recipe.hairControls===true;
  if(def.region==='ears')return recipe.earControls!==false;
  return def.id!=='p58'&&def.id!=='p59';

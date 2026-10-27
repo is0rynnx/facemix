@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import {nextVariantName} from './variants';
 
 import {defaultTemplate} from './default-template';
 
@@ -107,8 +108,8 @@ export const useStudio=create<State>((set,get)=>({
 
  }),
 
- saveVariant:()=>get().change(p=>({...p,variants:[...p.variants,{id:uuid(),name:`Variant ${p.variants.length+1}`,sources:p.sources,recipe:p.recipe,template:p.template,created:Date.now()}]})),
+ saveVariant:()=>get().change(p=>({...p,variants:[...p.variants,{id:uuid(),name:nextVariantName(p.variants),kind:'saved',sources:p.sources,recipe:p.recipe,template:p.template,created:Date.now()}]})),
 
- loadVariant:id=>{const v=get().project.variants.find(v=>v.id===id);if(v)get().change(p=>{const next={...p,sources:v.sources,recipe:v.recipe,template:v.template??p.template};return next;});}
+ loadVariant:id=>{const v=get().project.variants.find(v=>v.id===id);if(v){get().change(p=>({...p,sources:v.sources,recipe:v.recipe,template:v.template??p.template}));const current=get();set({selectedSource:current.project.sources.some(source=>source.id===current.selectedSource)?current.selectedSource:current.project.sources[0]?.id??'',selectedPoints:current.selectedPoints.filter(id=>current.project.template.points.some(point=>point.id===id)),isolatedSource:'',inspectSource:''});}}
 
 }));

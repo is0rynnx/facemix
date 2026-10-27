@@ -1,3 +1,4 @@
+import {recoverySnapshot} from './variants';
 import { assets, registerAsset } from './data';
 
 import { useStudio } from './store';
@@ -71,7 +72,7 @@ export async function analyzeSource(sourceId:string,maskOnly=false){
 
  const state=useStudio.getState(),source=state.project.sources.find(s=>s.id===sourceId),asset=assets.get(sourceId);if(!source||!asset)return;
 
- if(!maskOnly&&source.status!=='preparing'){state.checkpoint();const recoveryName=`Landmark backup ${FIT_VERSION}`;if((source.fitVersion??0)<FIT_VERSION&&!state.project.variants.some(v=>v.name===recoveryName))state.change(p=>({...p,variants:[...p.variants,{id:id(),name:recoveryName,sources:structuredClone(p.sources),recipe:structuredClone(p.recipe),template:structuredClone(p.template),created:Date.now()}]}),false);}
+ if(!maskOnly&&source.status!=='preparing'){state.checkpoint();if((source.fitVersion??0)<FIT_VERSION){const before=recoverySnapshot(state.project,`fit-${FIT_VERSION}`,`Landmark backup ${FIT_VERSION}`);if(before)state.change(p=>({...p,variants:[...p.variants,before]}),false);}}
  state.updateSource(sourceId,{status:'preparing'},false);const mine=generation;
 
  try{let result=await detect(asset.blob);if(mine!==generation)return;if(!maskOnly){const selected=await selectFace(source,result);result=selected.result;sourceId=selected.sourceId;}if(mine!==generation)return;const current=useStudio.getState().project.sources.find(s=>s.id===sourceId);if(!current)return;const incoming=new Map(result.landmarks.map(p=>[p.id,p]));

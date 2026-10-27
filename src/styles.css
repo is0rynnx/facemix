@@ -80,3 +80,12 @@
 .rail-actions .rail-action-icon{flex:none;width:32px;padding:5px}.rail-actions .rail-action-icon>span{display:none}
 @media(max-width:1200px){.rail-actions .rail-action-icon{width:100%}.rail-actions .rail-action-icon>span{display:inline}}
 @media(max-width:640px){.rail-actions .rail-action-icon{width:36px}.rail-actions .rail-action-icon>span{display:none}}
+
+.recovery-menu{border-top:1px solid #555;margin-top:5px;padding:8px 5px;font-size:12px}.recovery-menu summary{cursor:pointer;color:var(--muted)}.recovery-menu button{font-size:12px}
+.app-shell .source-canvas,.app-shell .result-viewport,.topbar,.source-rail,.workspace-bar,.editor-toolbar,.inspector,.variants-bar,.statusbar,.library-dialog{-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+.app-shell input,.app-shell textarea,.app-shell [contenteditable=true]{-webkit-user-select:text;user-select:text}
+.app-shell img,.app-shell canvas,.app-shell button,.app-shell [role=button]{-webkit-touch-callout:none}.app-shell img{-webkit-user-drag:none;user-select:none}
+.app-shell button,.app-shell select{touch-action:manipulation}.app-shell input[type=range]{touch-action:pan-y;user-select:none;-webkit-user-select:none}
+@media(max-width:640px){.studio-body>.source-rail,.studio-body>.inspector{background:rgba(35,35,35,.88)}.mobile-panel-backdrop,.mobile-panel-backdrop:hover{background:rgba(0,0,0,.1)}}
+
+@media(max-width:640px){.studio-body>.source-rail,.studio-body>.inspector{bottom:48px}.mobile-panel-backdrop{bottom:48px}.studio-body>.inspector .inspector-heading,.studio-body>.inspector .property-source,.studio-body>.inspector .inspector-tabs,.studio-body>.source-rail .section-heading{background:rgba(35,35,35,.96)}}

@@ -1,14 +1,20 @@
+import type {EditorSession} from './session';
 import { zip, unzipSync, strToU8, strFromU8, type Zippable } from 'fflate';
 
 import { defaultRecipe,type Project,type Source,type Template } from './types';
 
 export const assets=new Map<string,{blob:Blob;url:string}>();
 
-export function registerAsset(id:string,blob:Blob){const previous=assets.get(id);if(previous)URL.revokeObjectURL(previous.url);assets.set(id,{blob,url:URL.createObjectURL(blob)});void putAsset(id,blob);}
+const assetWrites=new Map<string,Promise<void>>();
+export function registerAsset(id:string,blob:Blob){
+ const previous=assets.get(id);if(previous)URL.revokeObjectURL(previous.url);assets.set(id,{blob,url:URL.createObjectURL(blob)});
+ const write=(assetWrites.get(id)??Promise.resolve()).catch(()=>{}).then(()=>putAsset(id,blob));assetWrites.set(id,write);
+ void write.then(()=>{if(assetWrites.get(id)===write)assetWrites.delete(id);},()=>{});
+}
 
-let database:Promise<IDBDatabase>|undefined;
+let database:Promise<IDBDatabase>|undefined,connection:IDBDatabase|undefined,saveOrder=0;
 
-function db(){return database??=new Promise((resolve,reject)=>{const r=indexedDB.open('facemix-studio-v1',2);r.onupgradeneeded=()=>{for(const name of ['projects','assets','library'])if(!r.result.objectStoreNames.contains(name))r.result.createObjectStore(name);};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+function db(){return database??=new Promise((resolve,reject)=>{const r=indexedDB.open('facemix-studio-v1',2);r.onupgradeneeded=()=>{for(const name of ['projects','assets','library'])if(!r.result.objectStoreNames.contains(name))r.result.createObjectStore(name);};r.onsuccess=()=>{const opened=r.result;connection=opened;opened.onversionchange=()=>{opened.close();if(connection===opened){connection=undefined;database=undefined;}};resolve(opened);};r.onerror=()=>{database=undefined;reject(r.error);};});}
 
 export async function readLibraryData<T>():Promise<T|undefined>{const database=await db();return new Promise((resolve,reject)=>{const r=database.transaction('library').objectStore('library').get('current');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
 
@@ -16,11 +22,18 @@ export async function writeLibraryData(data:unknown){const database=await db();r
 
 export async function ensureAsset(id:string){if(assets.has(id))return assets.get(id);const database=await db(),blob=await new Promise<Blob|undefined>(resolve=>{const r=database.transaction('assets').objectStore('assets').get(id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>resolve(undefined);});if(blob){assets.set(id,{blob,url:URL.createObjectURL(blob)});return assets.get(id);}}
 
-async function putAsset(id:string,blob:Blob){try{const database=await db();database.transaction('assets','readwrite').objectStore('assets').put(blob,id);}catch{ /* portable project export remains available */ }}
+async function putAsset(id:string,blob:Blob){const database=await db();await new Promise<void>((resolve,reject)=>{const tx=database.transaction('assets','readwrite');tx.objectStore('assets').put(blob,id);tx.oncomplete=()=>resolve();tx.onerror=tx.onabort=()=>reject(tx.error??new Error('Image storage failed.'));});}
 
-export async function autosave(project:Project){const database=await db();await new Promise<void>((resolve,reject)=>{const tx=database.transaction('projects','readwrite');tx.objectStore('projects').put(project,'current');tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});}
+export function autosave(project:Project,editor?:EditorSession):Promise<void>{
+ const order=++saveOrder,ids=new Set([...project.sources,...project.variants.flatMap(v=>v.sources)].flatMap(s=>s.originalAssetId?[s.id,s.originalAssetId]:[s.id]));
+ const pending=[...ids].filter(id=>assetWrites.has(id));
+ const commit=(database:IDBDatabase)=>{if(order!==saveOrder)return Promise.resolve();return new Promise<void>((resolve,reject)=>{const tx=database.transaction('projects','readwrite');tx.objectStore('projects').put(project,'current');if(editor)tx.objectStore('projects').put(editor,'editor');tx.oncomplete=()=>resolve();tx.onerror=tx.onabort=()=>reject(tx.error??new Error('Project storage failed.'));});};
+ if(connection&&!pending.length)return commit(connection);
+ return Promise.all(pending.map(async id=>{const write=assetWrites.get(id);if(write)await write.catch(async()=>{const asset=assets.get(id);if(!asset)throw new Error('Image storage failed.');await putAsset(id,asset.blob);if(assetWrites.get(id)===write)assetWrites.delete(id);});})).then(()=>db()).then(commit);
+}
+export async function restoreEditor():Promise<EditorSession|undefined>{const database=await db();return new Promise((resolve,reject)=>{const request=database.transaction('projects').objectStore('projects').get('editor');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
 
-export async function restore():Promise<Project|undefined>{await removeRetiredAssets();const database=await db();const project=await new Promise<Project|undefined>((resolve,reject)=>{const r=database.transaction('projects').objectStore('projects').get('current');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});if(!project||project.schemaVersion!==1)return;project.recipe={...defaultRecipe(),...project.recipe};for(const v of project.variants)v.recipe={...defaultRecipe(),...v.recipe};for(const s of [...project.sources,...project.variants.flatMap(v=>v.sources)]){if(s.status==='preparing'){s.status='manual';s.note='Preparation stopped. Detect landmarks to continue.';}delete (s as unknown as Record<string,unknown>).faceMesh;if(s.originalAssetId)await ensureAsset(s.originalAssetId);if(assets.has(s.id))continue;const blob=await new Promise<Blob|undefined>(resolve=>{const r=database.transaction('assets').objectStore('assets').get(s.id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>resolve(undefined);});if(blob)assets.set(s.id,{blob,url:URL.createObjectURL(blob)});else{s.status='error';s.note='Original photo missing. Import this source again.';}}return project;}
+export async function restore():Promise<Project|undefined>{const database=await db();const project=await new Promise<Project|undefined>((resolve,reject)=>{const r=database.transaction('projects').objectStore('projects').get('current');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});if(!project||project.schemaVersion!==1)return;project.recipe={...defaultRecipe(),...project.recipe};for(const v of project.variants)v.recipe={...defaultRecipe(),...v.recipe};for(const s of [...project.sources,...project.variants.flatMap(v=>v.sources)]){if(s.status==='preparing'){s.status='manual';s.note='Preparation stopped. Detect landmarks to continue.';}delete (s as unknown as Record<string,unknown>).faceMesh;if(s.originalAssetId)await ensureAsset(s.originalAssetId);if(assets.has(s.id))continue;const blob=await new Promise<Blob|undefined>(resolve=>{const r=database.transaction('assets').objectStore('assets').get(s.id);r.onsuccess=()=>resolve(r.result);r.onerror=()=>resolve(undefined);});if(blob)assets.set(s.id,{blob,url:URL.createObjectURL(blob)});else{s.status='error';s.note='Original photo missing. Import this source again.';}}void removeRetiredAssets().catch(()=>{});return project;}
 
 /** Remove retired library items. Keep images used by the user's current project. */
 export async function removeRetiredAssets(){

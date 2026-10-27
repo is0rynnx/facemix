@@ -1,3 +1,4 @@
+import {recoverySnapshot} from './variants';
 import original from './reference-template.json';
 import calibration from './detector-calibration.json';
 import type {Landmark,Project,Source,Template} from './types';
@@ -31,7 +32,7 @@ export function updateLayout(project:Project):Project{
  const defaults=defaultTemplate();
  const remove=new Set([...retiredDefaultIds].filter(id=>removedJunctions.has(id)||!project.recipe.pins[id]&&!project.sources.some(s=>s.landmarks.some(p=>p.id===id&&(p.authored||p.locked)))));
  if(project.template.version>=OUTLINE_LAYOUT_VERSION&&!project.template.points.some(p=>removedJunctions.has(p.id)))return project;
- const before={id:crypto.randomUUID(),name:'Control layout backup',sources:structuredClone(project.sources),recipe:structuredClone(project.recipe),template:structuredClone(project.template),created:Date.now()};
+ const before=recoverySnapshot(project,'outline-11');
  const retained=project.template.points.filter(d=>!remove.has(d.id)&&!deprecatedPointIds.has(d.id)&&!defaults.points.some(p=>p.id===d.id));
  const points=[...defaults.points,...retained],available=new Set(points.map(d=>d.id));
  const contours=[...defaults.contours,...project.template.contours.filter(c=>c.ids.length>1&&c.ids.every(id=>retained.some(d=>d.id===id)))];
@@ -50,7 +51,7 @@ export function updateLayout(project:Project):Project{
   return {...source,landmarks,fitVersion:recovery||fit?FIT_VERSION:source.fitVersion,observation:recovery?.observation??fit?.observation??source.observation,note:recovery?.note??fit?.note??source.note};
  });
  const {landmarkMode:legacyMode,...recipe}=project.recipe;void legacyMode;
- return withShapeControls({...project,variants:[...project.variants,before],template,sources,recipe:{...recipe,pins:Object.fromEntries(Object.entries(recipe.pins).filter(([id])=>available.has(id)))}});
+ return withShapeControls({...project,variants:before?[...project.variants,before]:project.variants,template,sources,recipe:{...recipe,pins:Object.fromEntries(Object.entries(recipe.pins).filter(([id])=>available.has(id)))}});
 }
 
 /** Custom and intentionally cleared layouts remain under the user's control. */

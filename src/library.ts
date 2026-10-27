@@ -19,11 +19,11 @@ let loading:Promise<void>|undefined;
 
 export const useLibrary=create<LibraryState>((set,get)=>({data:empty(),past:[],loaded:false,error:'',
 
- load:()=>loading??= (async()=>{try{const saved=await readLibraryData<LibraryData>();const bundled=await(await fetch(new URL('library/catalog.json',new URL(import.meta.env.BASE_URL,location.href)))).json() as LibraryData;
+ load:()=>loading??= (async()=>{let saved:LibraryData|undefined;try{saved=await readLibraryData<LibraryData>();const bundled=await(await fetch(new URL('library/catalog.json',new URL(import.meta.env.BASE_URL,location.href)))).json() as LibraryData;
 
  const privacy=await(await fetch(new URL('library/privacy.json',new URL(import.meta.env.BASE_URL,location.href)))).json();
  const clean=saved?{...saved,entries:saved.entries.filter(e=>!privacy.retiredIds?.includes(e.id)),collections:saved.collections.filter(c=>!privacy.retiredCollections?.includes(c.id))}:saved;
- const data=mergeCatalog(clean,bundled);await writeLibraryData(data);for(const entry of data.entries)if(entry.source&&!entry.url)await ensureAsset(entry.source.id);set({data,loaded:true});}catch(error){set({loaded:true,error:String(error)});}})(),
+ const data=mergeCatalog(clean,bundled);await writeLibraryData(data);for(const entry of data.entries)if(entry.source&&!entry.url)await ensureAsset(entry.source.id);set({data,loaded:true});}catch(error){if(saved){for(const entry of saved.entries)if(entry.source&&!entry.url)await ensureAsset(entry.source.id);set({data:saved,loaded:true,error:'The bundled library is unavailable. Saved photos are available.'});}else set({loaded:true,error:String(error)});}})(),
 
  change:async (fn,history=true)=>{const previous=get().data,data=fn(previous);if(data===previous)return;const ids=new Set(data.entries.map(e=>e.id)),folders=new Set(data.collections.map(c=>c.id));data.removed=[...new Set([...(data.removed??[]),...previous.entries.filter(e=>!ids.has(e.id)).map(e=>e.id)])];data.removedCollections=[...new Set([...(data.removedCollections??[]),...previous.collections.filter(c=>!folders.has(c.id)).map(c=>c.id)])];set({data,error:'',past:history?[...get().past.slice(-19),previous]:get().past});try{await writeLibraryData(data);}catch{set({error:'Library storage is full. Save a project file.'});}},
 

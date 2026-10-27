@@ -90,7 +90,7 @@ export function SourceCanvas({maskOverlay,maskKind,maskDisplay='removed',problem
 
    onContextMenu={e=>{if(e.shiftKey)return;e.preventDefault();e.stopPropagation();onSourceMenu?.(source.id,e.clientX,e.clientY);}} onPointerLeave={()=>{if(!drag.current)setCursor(undefined);}}
 
-   onPointerDown={e=>{if(e.button===2)return;if(!synthetic)useStudio.setState({selectedSource:source.id});if(e.altKey||e.button===1){e.preventDefault();e.stopPropagation();drag.current={start:[e.clientX,e.clientY],positions:[],pan};e.currentTarget.setPointerCapture(e.pointerId);return;}
+   onPointerDown={e=>{if(e.button===2)return;e.preventDefault();if(!synthetic)useStudio.setState({selectedSource:source.id});if(e.altKey||e.button===1){e.preventDefault();e.stopPropagation();drag.current={start:[e.clientX,e.clientY],positions:[],pan};e.currentTarget.setPointerCapture(e.pointerId);return;}
 
     const p=position(e);setCursor(p);e.currentTarget.focus();
 
