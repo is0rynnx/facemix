@@ -1,0 +1,25 @@
+# Local Python environments and caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local configuration and runtime files
+.env
+.env.*
+!.env.example
+*.log
+*.pid
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build tools and generated output
+node_modules/
+dist/
+test-results/
+local-cache/
+.models/
+*.tsbuildinfo
