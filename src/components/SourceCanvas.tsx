@@ -32,7 +32,7 @@ export function SourceCanvas({maskOverlay,maskKind,maskDisplay='removed',problem
  useViewportGestures(holder,zoom,pan,onZoomChange,setPan,()=>{flushMask();drag.current=undefined;setBox(undefined);});
 
  useEffect(()=>{image.current=undefined;if(!url)return;const img=new Image();img.onload=()=>{image.current=img;setDimensions(d=>d.slice());};img.src=url;return()=>{img.onload=null;};},[url]);
- useEffect(()=>{flushMask();drag.current=undefined;setPolygon([]);setBox(undefined);setCursor(undefined);},[source.id,maskKind]);
+ useEffect(()=>{flushMask();drag.current=undefined;setPolygon([]);setBox(undefined);setCursor(undefined);},[source.id,maskKind,tool]);
 
  useEffect(()=>{const observer=new ResizeObserver(entries=>{const r=entries[0].contentRect;setDimensions([r.width,r.height]);});if(holder.current)observer.observe(holder.current);return()=>observer.disconnect();},[]);
 
@@ -117,7 +117,7 @@ export function SourceCanvas({maskOverlay,maskKind,maskDisplay='removed',problem
 
    onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='a'){e.preventDefault();useStudio.getState().selectPoints(source.landmarks.filter(p=>!p.locked).map(p=>p.id));}if(e.key==='Enter'&&tool==='polygon')completePolygon();if(e.key==='Escape'){setPolygon([]);}if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)&&!showMask){e.preventDefault();const amount=(e.shiftKey?10:1)/source.width,updates:Record<string,Vec>={};for(const p of source.landmarks.filter(p=>selected.includes(p.id)&&!p.locked))updates[p.id]=[p.x+(e.key==='ArrowRight'?amount:e.key==='ArrowLeft'?-amount:0),p.y+(e.key==='ArrowDown'?amount*source.width/source.height:e.key==='ArrowUp'?-amount*source.width/source.height:0)];useStudio.getState().movePoints(source.id,updates);}}}/>
 
-  {tool==='polygon'&&polygon.length>0&&<button className="canvas-action" onClick={completePolygon}>Remove polygon area / Enter</button>}
+  {tool==='polygon'&&polygon.length>0&&<div className="canvas-action"><button disabled={polygon.length<3} onClick={completePolygon}>Remove polygon area</button><button onClick={()=>setPolygon([])}>Cancel polygon</button></div>}
 
 
  </div>;
