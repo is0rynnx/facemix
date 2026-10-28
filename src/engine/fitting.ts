@@ -4,7 +4,7 @@ import {reviewFaceContour,reviewFeatureEvidence,reviewContourShape,sampleMask} f
 import {headMaskFromAnalysis,reviewFrontOpening} from './head-evidence';
 import {reviewVisibleContour} from './visible-contour';
 export interface DetectedPoint {x:number;y:number;}
-export const FIT_VERSION=10;
+export const FIT_VERSION=11;
 export const CALIBRATION_VERSION='reference-478-v1';
 const finite=(p:DetectedPoint|undefined):p is DetectedPoint=>!!p&&Number.isFinite(p.x)&&Number.isFinite(p.y);
 // Recipes are fixed correspondences, in image-side convention. Unsupported
@@ -77,7 +77,7 @@ export function reviewHeadBoundaries(baseline:Landmark[],proposed:Landmark[],wid
  return {landmarks:rejected?proposed.map(p=>heads.has(p.id)?before.get(p.id)??p:p):proposed,rejected};
 }
 export function fitLandmarks(template:Template,current:DetectedPoint[],reference:DetectedPoint[],width:number,height:number,headMask?:Mask,analysisMasks?:AnalysisMasks):{landmarks:Landmark[];observation:Source['observation'];note?:string}{
- headMask??=headMaskFromAnalysis(analysisMasks);
+ headMask=headMaskFromAnalysis(analysisMasks)??headMask;
  const observation=observe(current,width,height),reasons=new Set<string>(),unadjusted=new Map<string,Vec>();
  let landmarks=template.points.map(def=>{
   let xy=semanticPoint(def,current,reference,width/height),confidence=.85;
@@ -91,7 +91,7 @@ export function fitLandmarks(template:Template,current:DetectedPoint[],reference
   if(def.region==='brows')confidence=.65;
   if(observation&&Math.abs(observation.turn)>.32&&['outline','eyes','brows'].includes(def.region)){confidence=Math.min(confidence,.6);reasons.add('Turned face: check the far eye and outline');}
   if(def.region==='eyes'){
-   const i=def.id==='p31'||['p02','p03','p32','p33','p37'].includes(def.id)?473:468,a=current[i+1],b=current[i+3],c=current[i+2],d=current[i+4];
+   const i=def.id==='p31'||['p02','p03','p32','p33','p37'].includes(def.id)||(def.detectorIndex!==undefined&&def.detectorIndex>=362)?473:468,a=current[i+1],b=current[i+3],c=current[i+2],d=current[i+4];
    if(![a,b,c,d].every(finite)||Math.abs((a.x-b.x)*(c.y-d.y)-(a.y-b.y)*(c.x-d.x))<1e-10){confidence=.3;reasons.add('Iris geometry is weak');}
    const upper=current[i===468?159:386],lower=current[i===468?145:374];if(finite(upper)&&finite(lower)&&Math.hypot((upper.x-lower.x)*width,(upper.y-lower.y)*height)<Math.max(2,width*.002)){confidence=Math.min(confidence,.5);reasons.add('Small or closed eye: check eye controls');}
   }
@@ -101,8 +101,9 @@ export function fitLandmarks(template:Template,current:DetectedPoint[],reference
   if(reviewed.autoDisabled)reasons.add('Covered face-boundary controls are excluded until reviewed');
   return reviewFeatureEvidence(reviewed,def.region,analysisMasks);
  });
- const contourBaseline=landmarks.map(p=>{const xy=unadjusted.get(p.id)!;return {...p,x:xy[0],y:xy[1]};}),shaped=reviewContourShape(contourBaseline,landmarks,width,height);if(shaped!==landmarks)reasons.add('Ambiguous upper-cheek boundaries keep detector estimates for review');landmarks=shaped;
+ const contourBaseline=landmarks.map(p=>{const xy=unadjusted.get(p.id)!;return {...p,x:xy[0],y:xy[1]};});landmarks=reviewContourShape(contourBaseline,landmarks,width,height);
  landmarks=reviewContourShape(contourBaseline,reviewVisibleContour(landmarks,current,width,height,analysisMasks),width,height);
+ if(landmarks.some(p=>p.review?.includes('abrupt upper-cheek bend')))reasons.add('Ambiguous upper-cheek boundaries keep detector estimates for review');
  if(landmarks.some(p=>p.autoDisabled))reasons.add('Covered face-boundary controls are excluded until reviewed');
  if(headMask){const baseline=landmarks.map(p=>{const xy=unadjusted.get(p.id)!;return {...p,x:xy[0],y:xy[1],enabled:xy[0]>=0&&xy[0]<=1&&xy[1]>=0&&xy[1]<=1,confidence:headIds.includes(p.id)?.4:p.confidence};}),review=reviewHeadBoundaries(baseline,landmarks,width,height);landmarks=review.landmarks;if(review.rejected)reasons.add('Head boundary conflicts with face controls; estimated positions kept');}
  if(landmarks.some(p=>p.x<0||p.x>1||p.y<0||p.y>1))reasons.add('Outside-photo controls are disabled in all-source correspondence');

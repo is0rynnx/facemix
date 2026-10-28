@@ -63,7 +63,7 @@ export async function excludeAutomatic(sourceId:string,kind:'hair'|'accessories'
   source=useStudio.getState().project.sources.find(s=>s.id===sourceId);const selection=source?.analysisMasks?.[kind];
   if(!source||!selection)return void state.notify('Selection unavailable. Use the Remove brush or Polygon.');
   if(!selection.data.some(v=>v>102))return void state.notify('No clear selection found. Use the Remove brush or Polygon.');
-  useStudio.getState().updateSource(sourceId,{exclusionMask:excludeSelection(selection,source.exclusionMask,source.width,source.height)});
+  useStudio.getState().updateSource(sourceId,{exclusionMask:excludeSelection(selection,source.exclusionMask,source.width,source.height,kind,source.analysisMasks)});
   state.notify(kind==='hair'?'Hair selection applied. Refine it with Keep or Remove.':'Accessory selection applied. Check glasses and refine with Keep or Remove.');
  }catch(error){state.notify(String(error));}finally{useStudio.getState().setStatus('Ready');}
 }

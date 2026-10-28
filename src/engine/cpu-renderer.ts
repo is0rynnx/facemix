@@ -5,6 +5,7 @@ import { colorGains,getBitmap,type ImageAsset } from './gpu';
 import { REGIONS,type Mask,type RenderSpec } from '../types';
 
 import {cropCoverage,regionalWeightMaps,sampleWeight} from './regions';
+import {featherMask} from './mask-feather';
 
 const clamp=(x:number,a:number,b:number)=>Math.max(a,Math.min(b,x));
 
@@ -32,7 +33,7 @@ export async function renderCPU(spec:RenderSpec,mesh:WarpMesh,assets:Map<string,
 
  for(let s=0;s<mesh.controls.sources.length;s++){
 
-  const source=mesh.controls.sources[s],asset=assets.get(source.id);if(!asset)continue;const bm=await getBitmap(asset,source,spec.quality==='final'||spec.size>1024),c=new OffscreenCanvas(bm.width,bm.height),ctx=c.getContext('2d')!;ctx.drawImage(bm,0,0);const pixels=ctx.getImageData(0,0,c.width,c.height).data,mask=source.subjectMask??asset.mask,ex=source.exclusionMask??asset.exclusion,gain=gains[s];
+  const source=mesh.controls.sources[s],asset=assets.get(source.id);if(!asset)continue;const bm=await getBitmap(asset,source,spec.quality==='final'||spec.size>1024),c=new OffscreenCanvas(bm.width,bm.height),ctx=c.getContext('2d')!;ctx.drawImage(bm,0,0);const pixels=ctx.getImageData(0,0,c.width,c.height).data,mask=source.subjectMask??asset.mask,ex=featherMask(source.exclusionMask??asset.exclusion,spec.recipe.contributionFeather??1.5),gain=gains[s];
 
   const screen=mesh.vertices.map(p=>[p[0]/spec.recipe.aspect*fullW-(tile?.x??0),p[1]*fullH-(tile?.y??0)]),visited=new Uint8Array(w*h),backgroundSource=background&&source.id===(spec.recipe.backgroundSourceId??mesh.controls.sources[0].id),cubic=spec.quality==='final';
 

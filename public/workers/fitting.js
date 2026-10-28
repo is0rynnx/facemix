@@ -35,8 +35,17 @@ var FaceMixFitting = (() => {
   });
 
   // src/engine/contour-evidence.ts
-  var adjacent = { p18: [162, 234], p19: [389, 454], p28: [127, 93], p29: [356, 323], p21: [93, 58], p61: [132, 172], p22: [58, 136], p24: [136, 148], p15: [148, 377], p25: [365, 400], p23: [288, 365], p20: [323, 288] };
+  var adjacent = { p26: [21, 103], p27: [332, 251], p18: [162, 234], p19: [389, 454], p28: [127, 93], p29: [356, 323], p21: [93, 58], p61: [132, 172], p22: [58, 136], p24: [136, 148], p15: [148, 377], p25: [365, 400], p23: [288, 365], p20: [323, 288] };
   var upperFaceControls = /* @__PURE__ */ new Set(["p18", "p19", "p28", "p29"]);
+  function farSideContour(id, current, width, height) {
+    const [a, b, l, r, n] = [33, 263, 234, 454, 1].map((i) => current[i]);
+    if (!a || !b || !l || !r || !n) return false;
+    const dx = (b.x - a.x) * width, dy = (b.y - a.y) * height, span = Math.hypot(dx, dy);
+    if (span < 2) return false;
+    const project = (p) => p.x * width * dx / span + p.y * height * dy / span, extent = project(r) - project(l);
+    const side = id === "p18" || id === "p28" ? -1 : 1;
+    return extent > 2 && side * (2 * project(n) - project(l) - project(r)) / extent > 0.32;
+  }
   function sampleMask(mask, x, y) {
     if (!mask || x < 0 || y < 0 || x > 1 || y > 1) return 0;
     const px = x * mask.width - 0.5, py = y * mask.height - 0.5, ix = Math.floor(px), iy = Math.floor(py), fx = px - ix, fy = py - iy;
@@ -51,19 +60,26 @@ var FaceMixFitting = (() => {
   }
   function reviewFaceContour(point2, current, width, height, masks) {
     const indices = adjacent[point2.id];
-    if (!point2.enabled || !masks?.face || !indices || !current[1] || indices.some((i) => !current[i])) return point2;
+    if (!point2.enabled || point2.authored || point2.locked || !masks?.face || !indices || !current[1] || indices.some((i) => !current[i])) return point2;
     const a = current[indices[0]], b = current[indices[1]], tx = (b.x - a.x) * width, ty = (b.y - a.y) * height, length = Math.hypot(tx, ty);
     const eyeA = current[33], eyeB = current[263];
     if (!eyeA || !eyeB || length < 1e-6) return point2;
     const span = Math.hypot((eyeA.x - eyeB.x) * width, (eyeA.y - eyeB.y) * height);
+    if (!Number.isFinite(span) || span < 2) return point2;
     let nx = -ty / length, ny = tx / length;
     if (nx * (point2.x - current[1].x) * width + ny * (point2.y - current[1].y) * height < 0) {
       nx = -nx;
       ny = -ny;
     }
+    if (upperFaceControls.has(point2.id)) {
+      const side = point2.id === "p18" || point2.id === "p28" ? -1 : 1;
+      nx = side * (eyeB.x - eyeA.x) * width / span;
+      ny = side * (eyeB.y - eyeA.y) * height / span;
+    }
     const radius = Math.max(2, Math.min(span * 0.24, Math.min(width, height) * 0.14)), texel = 1 / Math.hypot(nx * masks.face.width / width, ny * masks.face.height / height), probe = Math.max(span * 0.02, texel * 1.5), step = Math.min(texel * 0.5, radius / 8), sideWidth = Math.max(span * 6e-3, texel * 0.4);
     const face = sampleMask(masks.face, point2.x, point2.y), cover = Math.max(sampleMask(masks.hair, point2.x, point2.y), sampleMask(masks.body, point2.x, point2.y), sampleMask(masks.clothing, point2.x, point2.y), sampleMask(masks.accessories, point2.x, point2.y));
-    if (face < 0.3 && cover > 0.5) return { ...point2, enabled: false, autoDisabled: true, confidence: 0.2, review: "Face boundary is covered. Place this control manually to use it." };
+    const covered = face < 0.3 && cover > 0.5;
+    if (covered && sampleMask(masks.body, point2.x, point2.y) > 0.5) return { ...point2, enabled: false, autoDisabled: true, confidence: 0.2, review: "Face boundary is covered. Place this control manually to use it." };
     const at = (distance) => {
       let value = 0;
       for (const side of [-sideWidth, 0, sideWidth]) value += sampleMask(masks.face, point2.x + (nx * distance + tx / length * side) / width, point2.y + (ny * distance + ty / length * side) / height);
@@ -81,8 +97,8 @@ var FaceMixFitting = (() => {
       previous = value;
     }
     const best = candidates.sort((a2, b2) => Math.abs(a2.distance) - Math.abs(b2.distance))[0];
-    if (!best) return { ...point2, confidence: Math.min(point2.confidence, 0.55), review: "Face boundary has weak image support. Check this control." };
-    if (upperFaceControls.has(point2.id) && best.distance > Math.max(span * 0.012, texel * 0.75)) return { ...point2, confidence: Math.min(point2.confidence, 0.55), review: "Skin selection extends beyond the face contour. Detector position kept; check this control." };
+    if (!best) return covered ? { ...point2, enabled: false, autoDisabled: true, confidence: 0.2, review: "Face boundary is covered. Place this control manually to use it." } : { ...point2, confidence: Math.min(point2.confidence, 0.55), review: "Face boundary has weak image support. Check this control." };
+    if (upperFaceControls.has(point2.id) && !farSideContour(point2.id, current, width, height) && best.distance > Math.max(span * 0.012, texel * 0.75)) return { ...point2, confidence: Math.min(point2.confidence, 0.55), review: "Skin selection extends beyond the face contour. Detector position kept; check this control." };
     const xy = [point2.x + nx * best.distance / width, point2.y + ny * best.distance / height];
     if (xy.some((v) => v < 0 || v > 1)) return point2;
     return { ...point2, x: xy[0], y: xy[1], confidence: Math.min(0.9, 0.7 + best.strength * 0.2), review: void 0 };
@@ -205,7 +221,8 @@ var FaceMixFitting = (() => {
         strengths[j] = Math.max(0, inside - outside);
         row[j] = 0.6 * Math.abs(sample(point2) - 0.5) - 0.8 * strengths[j] + 0.12 * (d / radius) ** 2;
       }
-      const valid = Math.max(...strengths) > 0.22 && !covered(base[i]);
+      const bodyCovered = sample(base[i]) < 0.3 && sampleMask(masks?.body, base[i][0] / width, base[i][1] / height) > 0.5;
+      const valid = Math.max(...strengths) > 0.22 && !bodyCovered;
       usable.push(valid);
       if (!valid) for (let j = 0; j < columns; j++) row[j] = 0.5 * (offsets[j] / radius) ** 2;
       support.push(strengths);
@@ -228,12 +245,11 @@ var FaceMixFitting = (() => {
     return landmarks.map((p) => {
       const vertices = controls[p.id];
       if (!vertices || p.authored || p.locked || !p.enabled) return p;
-      if (covered([p.x * width, p.y * height])) return { ...p, enabled: false, autoDisabled: true, confidence: 0.2, review: "Face boundary is covered. Place this control manually to use it." };
       const parameter = vertices.reduce((sum, v) => sum + lengths[chain.indexOf(v)], 0) / vertices.length / total * (rows - 1), nearest = Math.round(parameter), a = Math.min(rows - 2, Math.floor(parameter)), t = parameter - a;
-      if (!supported[nearest]) return { ...p, confidence: Math.min(p.confidence, 0.55), review: "Face boundary has weak image support. Check this control." };
+      if (!supported[nearest]) return covered([p.x * width, p.y * height]) ? { ...p, enabled: false, autoDisabled: true, confidence: 0.2, review: "Face boundary is covered. Place this control manually to use it." } : { ...p, confidence: Math.min(p.confidence, 0.55), review: "Face boundary has weak image support. Check this control." };
       const point2 = mix(chosen[a], chosen[a + 1], t), x = point2[0] / width, y = point2[1] / height;
       if (x < 0 || y < 0 || x > 1 || y > 1) return p;
-      if (upperFaceControls.has(p.id)) {
+      if (upperFaceControls.has(p.id) && !farSideContour(p.id, current, width, height)) {
         const seed2 = mix(base[a], base[a + 1], t), side = p.id === "p18" || p.id === "p28" ? -1 : 1, outward = side * ((point2[0] - seed2[0]) * eye[0] + (point2[1] - seed2[1]) * eye[1]), texel = 1 / Math.hypot(eye[0] * face.width / width, eye[1] * face.height / height);
         if (outward > Math.max(span * 0.012, texel * 0.75)) return { ...p, confidence: Math.min(p.confidence, 0.55), review: "Skin selection extends beyond the face contour. Detector position kept; check this control." };
       }
@@ -242,7 +258,7 @@ var FaceMixFitting = (() => {
   }
 
   // src/engine/fitting.ts
-  var FIT_VERSION = 10;
+  var FIT_VERSION = 11;
   var CALIBRATION_VERSION = "reference-478-v1";
   var finite = (p) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y);
   var semanticVertices = { p01: 133, p02: 362, p03: 263, p04: 33, p11: 2, p12: 6, p13: 327, p14: 98, p15: 152, p16: 61, p17: 291, p18: 127, p19: 356, p20: 361, p21: 132, p22: 172, p23: 397, p26: 54, p27: 284, p28: 234, p29: 454, p30: 468, p31: 473, p38: 37, p39: 267, p40: 17, p46: 200, p55: 1, p61: 58 };
@@ -333,7 +349,7 @@ var FaceMixFitting = (() => {
     return { landmarks: rejected ? proposed.map((p) => heads.has(p.id) ? before.get(p.id) ?? p : p) : proposed, rejected };
   }
   function fitLandmarks(template, current, reference, width, height, headMask, analysisMasks) {
-    headMask ??= headMaskFromAnalysis(analysisMasks);
+    headMask = headMaskFromAnalysis(analysisMasks) ?? headMask;
     const observation = observe(current, width, height), reasons = /* @__PURE__ */ new Set(), unadjusted = /* @__PURE__ */ new Map();
     let landmarks = template.points.map((def) => {
       let xy = semanticPoint(def, current, reference, width / height), confidence = 0.85;
@@ -374,7 +390,7 @@ var FaceMixFitting = (() => {
         reasons.add("Turned face: check the far eye and outline");
       }
       if (def.region === "eyes") {
-        const i = def.id === "p31" || ["p02", "p03", "p32", "p33", "p37"].includes(def.id) ? 473 : 468, a = current[i + 1], b = current[i + 3], c = current[i + 2], d = current[i + 4];
+        const i = def.id === "p31" || ["p02", "p03", "p32", "p33", "p37"].includes(def.id) || def.detectorIndex !== void 0 && def.detectorIndex >= 362 ? 473 : 468, a = current[i + 1], b = current[i + 3], c = current[i + 2], d = current[i + 4];
         if (![a, b, c, d].every(finite) || Math.abs((a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x)) < 1e-10) {
           confidence = 0.3;
           reasons.add("Iris geometry is weak");
@@ -401,10 +417,10 @@ var FaceMixFitting = (() => {
     const contourBaseline = landmarks.map((p) => {
       const xy = unadjusted.get(p.id);
       return { ...p, x: xy[0], y: xy[1] };
-    }), shaped = reviewContourShape(contourBaseline, landmarks, width, height);
-    if (shaped !== landmarks) reasons.add("Ambiguous upper-cheek boundaries keep detector estimates for review");
-    landmarks = shaped;
+    });
+    landmarks = reviewContourShape(contourBaseline, landmarks, width, height);
     landmarks = reviewContourShape(contourBaseline, reviewVisibleContour(landmarks, current, width, height, analysisMasks), width, height);
+    if (landmarks.some((p) => p.review?.includes("abrupt upper-cheek bend"))) reasons.add("Ambiguous upper-cheek boundaries keep detector estimates for review");
     if (landmarks.some((p) => p.autoDisabled)) reasons.add("Covered face-boundary controls are excluded until reviewed");
     if (headMask) {
       const baseline = landmarks.map((p) => {

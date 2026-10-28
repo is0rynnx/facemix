@@ -1,6 +1,6 @@
 import type {AnalysisMasks,Landmark,Vec} from '../types';
 import type {DetectedPoint} from './fitting';
-import {sampleMask,upperFaceControls} from './contour-evidence';
+import {sampleMask,upperFaceControls,farSideContour} from './contour-evidence';
 import {quadraticMinima} from './quadratic-minima';
 
 const chain=[127,234,93,132,58,172,136,150,149,176,148,152,377,400,378,379,365,397,288,361,323,454,356];
@@ -37,7 +37,8 @@ export function reviewVisibleContour(landmarks:Landmark[],current:DetectedPoint[
    const d=offsets[j],point:Vec=[base[i][0]+normal[0]*d,base[i][1]+normal[1]*d],inside=sample([point[0]-normal[0]*probe,point[1]-normal[1]*probe]),outside=sample([point[0]+normal[0]*probe,point[1]+normal[1]*probe]);
    strengths[j]=Math.max(0,inside-outside);row[j]=.6*Math.abs(sample(point)-.5)-.8*strengths[j]+.12*(d/radius)**2;
   }
-  const valid=Math.max(...strengths)>.22&&!covered(base[i]);usable.push(valid);if(!valid)for(let j=0;j<columns;j++)row[j]=.5*(offsets[j]/radius)**2;
+  const bodyCovered=sample(base[i])<.3&&sampleMask(masks?.body,base[i][0]/width,base[i][1]/height)>.5;
+  const valid=Math.max(...strengths)>.22&&!bodyCovered;usable.push(valid);if(!valid)for(let j=0;j<columns;j++)row[j]=.5*(offsets[j]/radius)**2;
   support.push(strengths);unary.push(row);
  }
  // A smooth displacement field favors coherent changes along one ordered curve.
@@ -52,12 +53,11 @@ export function reviewVisibleContour(landmarks:Landmark[],current:DetectedPoint[
  const supported=base.map((_,i)=>usable[i]&&support[i][path[i]]>.18),chosen:Vec[]=base.map((p,i)=>supported[i]?[p[0]+normals[i][0]*offsets[path[i]],p[1]+normals[i][1]*offsets[path[i]]]:p);
  return landmarks.map(p=>{
   const vertices=controls[p.id];if(!vertices||p.authored||p.locked||!p.enabled)return p;
-  if(covered([p.x*width,p.y*height]))return {...p,enabled:false,autoDisabled:true,confidence:.2,review:'Face boundary is covered. Place this control manually to use it.'};
   const parameter=vertices.reduce((sum,v)=>sum+lengths[chain.indexOf(v)],0)/vertices.length/total*(rows-1),nearest=Math.round(parameter),a=Math.min(rows-2,Math.floor(parameter)),t=parameter-a;
-  if(!supported[nearest])return {...p,confidence:Math.min(p.confidence,.55),review:'Face boundary has weak image support. Check this control.'};
+  if(!supported[nearest])return covered([p.x*width,p.y*height])?{...p,enabled:false,autoDisabled:true,confidence:.2,review:'Face boundary is covered. Place this control manually to use it.'}:{...p,confidence:Math.min(p.confidence,.55),review:'Face boundary has weak image support. Check this control.'};
   const point=mix(chosen[a],chosen[a+1],t),x=point[0]/width,y=point[1]/height;
   if(x<0||y<0||x>1||y>1)return p;
-  if(upperFaceControls.has(p.id)){
+  if(upperFaceControls.has(p.id)&&!farSideContour(p.id,current,width,height)){
    const seed=mix(base[a],base[a+1],t),side=p.id==='p18'||p.id==='p28'?-1:1,outward=side*((point[0]-seed[0])*eye[0]+(point[1]-seed[1])*eye[1]),texel=1/Math.hypot(eye[0]*face.width/width,eye[1]*face.height/height);
    if(outward>Math.max(span*.012,texel*.75))return {...p,confidence:Math.min(p.confidence,.55),review:'Skin selection extends beyond the face contour. Detector position kept; check this control.'};
   }

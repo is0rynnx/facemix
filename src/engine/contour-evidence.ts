@@ -1,8 +1,18 @@
 import type {AnalysisMasks,Landmark,Mask,Region,Vec} from '../types';
 import type {DetectedPoint} from './fitting';
 
-const adjacent:Record<string,[number,number]>={p18:[162,234],p19:[389,454],p28:[127,93],p29:[356,323],p21:[93,58],p61:[132,172],p22:[58,136],p24:[136,148],p15:[148,377],p25:[365,400],p23:[288,365],p20:[323,288]};
+const adjacent:Record<string,[number,number]>={p26:[21,103],p27:[332,251],p18:[162,234],p19:[389,454],p28:[127,93],p29:[356,323],p21:[93,58],p61:[132,172],p22:[58,136],p24:[136,148],p15:[148,377],p25:[365,400],p23:[288,365],p20:[323,288]};
 export const upperFaceControls=new Set(['p18','p19','p28','p29']);
+
+/** A far-side projected mesh vertex is inside the visible silhouette under
+ * yaw. Only that side may expand; the near-side skin class can include an ear. */
+export function farSideContour(id:string,current:DetectedPoint[],width:number,height:number):boolean{
+ const [a,b,l,r,n]=[33,263,234,454,1].map(i=>current[i]);if(!a||!b||!l||!r||!n)return false;
+ const dx=(b.x-a.x)*width,dy=(b.y-a.y)*height,span=Math.hypot(dx,dy);if(span<2)return false;
+ const project=(p:DetectedPoint)=>p.x*width*dx/span+p.y*height*dy/span,extent=project(r)-project(l);
+ const side=id==='p18'||id==='p28'?-1:1;
+ return extent>2&&side*(2*project(n)-project(l)-project(r))/extent>.32;
+}
 
 export function sampleMask(mask:Mask|undefined,x:number,y:number):number{
  if(!mask||x<0||y<0||x>1||y>1)return 0;
@@ -22,16 +32,21 @@ export function reviewFeatureEvidence(point:Landmark,region:Region,masks?:Analys
 /** Refine only a nearby, supported face-skin exit. Covered contours keep their
  * estimate for review and leave the warp until a person places that control. */
 export function reviewFaceContour(point:Landmark,current:DetectedPoint[],width:number,height:number,masks?:AnalysisMasks):Landmark{
- const indices=adjacent[point.id];if(!point.enabled||!masks?.face||!indices||!current[1]||indices.some(i=>!current[i]))return point;
+ const indices=adjacent[point.id];if(!point.enabled||point.authored||point.locked||!masks?.face||!indices||!current[1]||indices.some(i=>!current[i]))return point;
  const a=current[indices[0]],b=current[indices[1]],tx=(b.x-a.x)*width,ty=(b.y-a.y)*height,length=Math.hypot(tx,ty);
  const eyeA=current[33],eyeB=current[263];if(!eyeA||!eyeB||length<1e-6)return point;
  const span=Math.hypot((eyeA.x-eyeB.x)*width,(eyeA.y-eyeB.y)*height);
+ if(!Number.isFinite(span)||span<2)return point;
  let nx=-ty/length,ny=tx/length;if(nx*(point.x-current[1].x)*width+ny*(point.y-current[1].y)*height<0){nx=-nx;ny=-ny;}
+ if(upperFaceControls.has(point.id)){const side=point.id==='p18'||point.id==='p28'?-1:1;nx=side*(eyeB.x-eyeA.x)*width/span;ny=side*(eyeB.y-eyeA.y)*height/span;}
  // Measure the search and evidence footprint in face/mask units. A fixed pixel
  // cap misses the same contour when a portrait is enlarged or tightly cropped.
  const radius=Math.max(2,Math.min(span*.24,Math.min(width,height)*.14)),texel=1/Math.hypot(nx*masks.face.width/width,ny*masks.face.height/height),probe=Math.max(span*.02,texel*1.5),step=Math.min(texel*.5,radius/8),sideWidth=Math.max(span*.006,texel*.4);
  const face=sampleMask(masks.face,point.x,point.y),cover=Math.max(sampleMask(masks.hair,point.x,point.y),sampleMask(masks.body,point.x,point.y),sampleMask(masks.clothing,point.x,point.y),sampleMask(masks.accessories,point.x,point.y));
- if(face<.3&&cover>.5)return {...point,enabled:false,autoDisabled:true,confidence:.2,review:'Face boundary is covered. Place this control manually to use it.'};
+ const covered=face<.3&&cover>.5;
+ // A hand or body is an occluder. Hair and headwear can instead expose a
+ // nearby opening; search that boundary before rejecting the control.
+ if(covered&&sampleMask(masks.body,point.x,point.y)>.5)return {...point,enabled:false,autoDisabled:true,confidence:.2,review:'Face boundary is covered. Place this control manually to use it.'};
  const at=(distance:number)=>{
   let value=0;for(const side of [-sideWidth,0,sideWidth])value+=sampleMask(masks.face,point.x+(nx*distance+tx/length*side)/width,point.y+(ny*distance+ty/length*side)/height);
   return value/3;
@@ -44,10 +59,10 @@ export function reviewFaceContour(point:Landmark,current:DetectedPoint[],width:n
   previous=value;
  }
  const best=candidates.sort((a,b)=>Math.abs(a.distance)-Math.abs(b.distance))[0];
- if(!best)return {...point,confidence:Math.min(point.confidence,.55),review:'Face boundary has weak image support. Check this control.'};
+ if(!best)return covered?{...point,enabled:false,autoDisabled:true,confidence:.2,review:'Face boundary is covered. Place this control manually to use it.'}:{...point,confidence:Math.min(point.confidence,.55),review:'Face boundary has weak image support. Check this control.'};
  // This class includes ears. Its outside edge cannot establish a temple or
  // upper-cheek correspondence beyond the native face contour.
- if(upperFaceControls.has(point.id)&&best.distance>Math.max(span*.012,texel*.75))return {...point,confidence:Math.min(point.confidence,.55),review:'Skin selection extends beyond the face contour. Detector position kept; check this control.'};
+ if(upperFaceControls.has(point.id)&&!farSideContour(point.id,current,width,height)&&best.distance>Math.max(span*.012,texel*.75))return {...point,confidence:Math.min(point.confidence,.55),review:'Skin selection extends beyond the face contour. Detector position kept; check this control.'};
  const xy:Vec=[point.x+nx*best.distance/width,point.y+ny*best.distance/height];
  if(xy.some(v=>v<0||v>1))return point;
  return {...point,x:xy[0],y:xy[1],confidence:Math.min(.9,.7+best.strength*.2),review:undefined};

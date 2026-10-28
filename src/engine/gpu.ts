@@ -3,6 +3,7 @@ import { normalize, regionsGeometry, type WarpMesh } from './math';
 import { REGIONS, type Mask, type RenderSpec, type Source } from '../types';
 
 import {regionalWeightMaps,type WeightMap} from './regions';
+import {featherMask} from './mask-feather';
 
 export interface ImageAsset { blob:Blob; bitmap?:ImageBitmap; original?:ImageBitmap; mask?:Mask; exclusion?:Mask; colorStats?:{key:string;values:number[]}; }
 
@@ -145,7 +146,7 @@ export class GPUCompositor{
 
     if(cancelled())throw new Error('cancelled');const source=mesh.controls.sources[s],asset=assets.get(source.id);if(!asset)continue;
 
-    const original=spec.quality==='final'||spec.size>1024,bitmap=await getBitmap(asset,source,original);const t=original?this.texture(bitmap):this.previewTexture(asset,bitmap),mask=this.texture(source.subjectMask??asset.mask),ex=this.texture(source.exclusionMask??asset.exclusion),weightMap=this.texture(weightMaps[s]);created.push(...(original?[t]:[]),mask,ex,weightMap);
+    const original=spec.quality==='final'||spec.size>1024,bitmap=await getBitmap(asset,source,original);const t=original?this.texture(bitmap):this.previewTexture(asset,bitmap),mask=this.texture(source.subjectMask??asset.mask),ex=this.texture(featherMask(source.exclusionMask??asset.exclusion,spec.recipe.contributionFeather??1.5)),weightMap=this.texture(weightMaps[s]);created.push(...(original?[t]:[]),mask,ex,weightMap);
 
     g.useProgram(this.warp);g.bindVertexArray(vao);g.bindBuffer(g.ARRAY_BUFFER,pos);const pl=g.getAttribLocation(this.warp,'a_position');g.enableVertexAttribArray(pl);g.vertexAttribPointer(pl,2,g.FLOAT,false,0,0);
 

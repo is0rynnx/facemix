@@ -39,6 +39,7 @@ export interface Recipe {
   background:'solid'|'transparent'|'source'; backgroundColor:string; backgroundSourceId?:string;
 
   removeBackground:boolean; colorMatch:boolean; decontaminate:number; feather:number;
+  contributionFeather?:number;
 
   aspect:number; outputSize:number; pins:Record<string,Vec>; frameAnchors:boolean; frameScale:number; frameOffsetY:number;
 
@@ -69,6 +70,6 @@ export interface DetectedFace {bounds:[number,number,number,number];landmarks:La
 
 export interface DetectionResult { faces?:DetectedFace[]; fitVersion?:number; landmarks:Landmark[]; mask?:Mask; analysisMasks?:AnalysisMasks; note?:string; featurePoints?:Source['featurePoints']; observation?:Source['observation']; }
 
-export const defaultRecipe = ():Recipe => ({ linked:true, warp:'triangles', blend:'linear', background:'solid', backgroundColor:'#d7d6d2', removeBackground:true, colorMatch:true, decontaminate:0, feather:0, cropFeather:4/2048, fillMissing:true, regionFeather:.012, gaze:'average', aspect:0.8, outputSize:2048, pins:{}, frameAnchors:false, hairControls:false, frameScale:.9, frameOffsetY:.02 });
+export const defaultRecipe = ():Recipe => ({ linked:true, warp:'triangles', blend:'linear', background:'solid', backgroundColor:'#d7d6d2', removeBackground:true, colorMatch:true, decontaminate:0, feather:0, contributionFeather:1.5, cropFeather:4/2048, fillMissing:true, regionFeather:.012, gaze:'average', aspect:0.8, outputSize:2048, pins:{}, frameAnchors:false, hairControls:false, frameScale:.9, frameOffsetY:.02 });
 
 export const regionDefaults = () => Object.fromEntries(REGIONS.map(r=>[r,{shape:1,appearance:1}])) as Source['regionWeights'];

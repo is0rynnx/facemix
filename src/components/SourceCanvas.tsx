@@ -1,3 +1,4 @@
+import {featherMask} from '../engine/mask-feather';
 import { useEffect,useRef,useState } from 'react';
 
 import {useViewportGestures} from './useViewportGestures';
@@ -44,7 +45,7 @@ export function SourceCanvas({maskOverlay,maskKind,maskDisplay='removed',problem
 
   if(image.current)ctx.drawImage(image.current,x,y,iw,ih);
 
-  const mask=maskOverlay??source[maskKind??(tool==='exclude'||tool==='restore'?'exclusionMask':'subjectMask')];
+  const maskKey=maskKind??(tool==='exclude'||tool==='restore'?'exclusionMask':'subjectMask'),mask=maskOverlay??(maskKey==='exclusionMask'?featherMask(source.exclusionMask,recipe.contributionFeather??1.5):source.subjectMask);
 
   if(showMask&&mask){if(coloredMask.current?.mask!==mask||coloredMask.current.display!==maskDisplay){const overlay=document.createElement('canvas');overlay.width=mask.width;overlay.height=mask.height;const rgba=new Uint8ClampedArray(mask.width*mask.height*4);for(let i=0;i<mask.data.length;i++){rgba[i*4]=maskDisplay==='included'?55:230;rgba[i*4+1]=maskDisplay==='included'?142:74;rgba[i*4+2]=maskDisplay==='included'?240:110;rgba[i*4+3]=Math.round((maskDisplay==='included'?mask.data[i]:255-mask.data[i])*.55);}overlay.getContext('2d')!.putImageData(new ImageData(rgba,mask.width,mask.height),0,0);coloredMask.current={mask,display:maskDisplay,canvas:overlay};}ctx.drawImage(coloredMask.current.canvas,x,y,iw,ih);}
 
@@ -62,7 +63,7 @@ export function SourceCanvas({maskOverlay,maskKind,maskDisplay='removed',problem
 
   if(cursor&&!showMask&&zoom<2&&tool==='move'&&image.current){const selectedPoint=source.landmarks.find(p=>selected.includes(p.id));if(selectedPoint){const m=76,px=x+selectedPoint.x*iw,py=y+selectedPoint.y*ih,corners=[[10,10],[w-m-10,10],[10,h-m-10],[w-m-10,h-m-10]],best=corners.sort((a,b)=>Math.hypot(b[0]+m/2-px,b[1]+m/2-py)-Math.hypot(a[0]+m/2-px,a[1]+m/2-py))[0],mx=best[0],my=best[1];ctx.save();ctx.beginPath();ctx.arc(mx+m/2,my+m/2,m/2,0,Math.PI*2);ctx.clip();ctx.drawImage(image.current,selectedPoint.x*source.width-25,selectedPoint.y*source.height-25,50,50,mx,my,m,m);ctx.strokeStyle='#378ef0';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(mx+m/2-7,my+m/2);ctx.lineTo(mx+m/2+7,my+m/2);ctx.moveTo(mx+m/2,my+m/2-7);ctx.lineTo(mx+m/2,my+m/2+7);ctx.stroke();ctx.restore();}}
 
- },[source.width,source.height,source.landmarks,source.subjectMask,source.exclusionMask,url,dimensions,pan,zoom,selected,template,recipe.earControls,showLabels,showLines,showMask,tool,brush,cursor,polygon,box,region,problemPoints,maskKind,maskDisplay,maskOverlay]);
+ },[source.width,source.height,source.landmarks,source.subjectMask,source.exclusionMask,url,dimensions,pan,zoom,selected,template,recipe.earControls,recipe.contributionFeather,showLabels,showLines,showMask,tool,brush,cursor,polygon,box,region,problemPoints,maskKind,maskDisplay,maskOverlay]);
 
  const position=(e:React.PointerEvent):Vec=>{const rect=canvas.current!.getBoundingClientRect(),t=transform.current;return [((e.clientX-rect.left)*dimensions[0]/(rect.width||dimensions[0])-t.x)/t.w,((e.clientY-rect.top)*dimensions[1]/(rect.height||dimensions[1])-t.y)/t.h];};
 
