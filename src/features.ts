@@ -1,6 +1,8 @@
 import detail from './feature-template.json';
 import reference from './reference-template.json';
 import calibration from './detector-calibration.json';
+import {headMaskFromAnalysis} from './engine/head-evidence';
+import {recoverySnapshot} from './variants';
 import {point,transfer,fitLandmarks,FIT_VERSION,semanticPoint} from './engine/fitting';
 
 import {applyBasis,mlsBasis,buildControls,signedArea,avoidFoldedTriangles} from './engine/math';
@@ -85,8 +87,18 @@ export function compatibility(sources:Source[]):string[]{
 
 export function fitUnreviewed(s:Source,template:Template,pins:Record<string,Vec>={}):Source{
  if((s.fitVersion??0)>=FIT_VERSION||!s.featurePoints||!s.featurePoints['mp-477'])return s;
- const r=calibration.map(p=>({x:p[0],y:p[1]})),current=calibration.map((_,i)=>({x:s.featurePoints![`mp-${i}`]?.[0]??NaN,y:s.featurePoints![`mp-${i}`]?.[1]??NaN})),fit=fitLandmarks(template,current,r,s.width,s.height,undefined,s.analysisMasks),incoming=new Map(fit.landmarks.map(p=>[p.id,p]));
+ const r=calibration.map(p=>({x:p[0],y:p[1]})),current=calibration.map((_,i)=>({x:s.featurePoints![`mp-${i}`]?.[0]??NaN,y:s.featurePoints![`mp-${i}`]?.[1]??NaN})),fit=fitLandmarks(template,current,r,s.width,s.height,headMaskFromAnalysis(s.analysisMasks)??s.subjectMask,s.analysisMasks),incoming=new Map(fit.landmarks.map(p=>[p.id,p]));
  return {...s,fitVersion:FIT_VERSION,observation:fit.observation,note:fit.note,landmarks:s.landmarks.map(p=>p.authored||p.locked||(!p.enabled&&!p.autoDisabled)||pins[p.id]?p:incoming.get(p.id)??p)};
+}
+
+/** Apply a fitting correction once to the current built-in layout. Saved
+ * variants, authored coordinates, disabled controls and output pins stay intact. */
+export function refreshAutomaticFit(project:Project):Project{
+ if(!project.template.points.length||![reference.id,'face-controls'].includes(project.template.id))return project;
+ const sources=project.sources.map(source=>source.landmarks.some(p=>!p.authored&&!p.locked&&(p.enabled||p.autoDisabled)&&!project.recipe.pins[p.id])?fitUnreviewed(source,project.template,project.recipe.pins):source);
+ if(sources.every((source,i)=>source===project.sources[i]))return project;
+ const backup=recoverySnapshot(project,`fit-${FIT_VERSION}`,`Landmark backup ${FIT_VERSION}`);
+ return {...project,sources,variants:backup?[...project.variants,backup]:project.variants};
 }
 
 /** Shape guides are visible correspondences. They are added only for an edited feature. */

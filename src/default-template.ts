@@ -1,9 +1,10 @@
 import {recoverySnapshot} from './variants';
 import original from './reference-template.json';
 import calibration from './detector-calibration.json';
+import {headMaskFromAnalysis} from './engine/head-evidence';
 import type {Landmark,Project,Source,Template} from './types';
 import {fitLandmarks,FIT_VERSION} from './engine/fitting';
-import {withShapeControls} from './features';
+import {withShapeControls,refreshAutomaticFit} from './features';
 
 export const OUTLINE_LAYOUT_VERSION=11;
 export const retiredDefaultIds=new Set(['p56','p60','p58','p59']);
@@ -41,7 +42,7 @@ export function updateLayout(project:Project):Project{
   const existing=new Map(source.landmarks.map(p=>[p.id,p]));
   const recovery=recoverySource(project,source),recovered=new Map(recovery?.landmarks.map(p=>[p.id,p]));
   const current=source.featurePoints?.['mp-477']?calibration.map((_,i)=>({x:source.featurePoints?.[`mp-${i}`]?.[0]??NaN,y:source.featurePoints?.[`mp-${i}`]?.[1]??NaN})):undefined;
-  const fit=current?fitLandmarks(template,current,calibration.map(p=>({x:p[0],y:p[1]})),source.width,source.height,undefined,source.analysisMasks):undefined;
+  const fit=current?fitLandmarks(template,current,calibration.map(p=>({x:p[0],y:p[1]})),source.width,source.height,headMaskFromAnalysis(source.analysisMasks)??source.subjectMask,source.analysisMasks):undefined;
   const fitted=new Map(fit?.landmarks.map(p=>[p.id,p]));
   const landmarks:Landmark[]=points.map(d=>{
    const p=existing.get(d.id);
@@ -56,5 +57,6 @@ export function updateLayout(project:Project):Project{
 
 /** Custom and intentionally cleared layouts remain under the user's control. */
 export function refreshDefaultLayout(project:Project):Project{
- return project.template.points.length&&(project.template.id==='face-controls'||project.template.id===original.id)&&project.template.version<OUTLINE_LAYOUT_VERSION?updateLayout(project):project;
+ const updated=project.template.points.length&&(project.template.id==='face-controls'||project.template.id===original.id)&&project.template.version<OUTLINE_LAYOUT_VERSION?updateLayout(project):project;
+ return refreshAutomaticFit(updated);
 }

@@ -2,6 +2,7 @@ import type {AnalysisMasks,Landmark,Mask,Region,Vec} from '../types';
 import type {DetectedPoint} from './fitting';
 
 const adjacent:Record<string,[number,number]>={p18:[162,234],p19:[389,454],p28:[127,93],p29:[356,323],p21:[93,58],p61:[132,172],p22:[58,136],p24:[136,148],p15:[148,377],p25:[365,400],p23:[288,365],p20:[323,288]};
+export const upperFaceControls=new Set(['p18','p19','p28','p29']);
 
 export function sampleMask(mask:Mask|undefined,x:number,y:number):number{
  if(!mask||x<0||y<0||x>1||y>1)return 0;
@@ -44,6 +45,9 @@ export function reviewFaceContour(point:Landmark,current:DetectedPoint[],width:n
  }
  const best=candidates.sort((a,b)=>Math.abs(a.distance)-Math.abs(b.distance))[0];
  if(!best)return {...point,confidence:Math.min(point.confidence,.55),review:'Face boundary has weak image support. Check this control.'};
+ // This class includes ears. Its outside edge cannot establish a temple or
+ // upper-cheek correspondence beyond the native face contour.
+ if(upperFaceControls.has(point.id)&&best.distance>Math.max(span*.012,texel*.75))return {...point,confidence:Math.min(point.confidence,.55),review:'Skin selection extends beyond the face contour. Detector position kept; check this control.'};
  const xy:Vec=[point.x+nx*best.distance/width,point.y+ny*best.distance/height];
  if(xy.some(v=>v<0||v>1))return point;
  return {...point,x:xy[0],y:xy[1],confidence:Math.min(.9,.7+best.strength*.2),review:undefined};

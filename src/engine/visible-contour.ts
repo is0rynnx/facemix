@@ -1,6 +1,7 @@
 import type {AnalysisMasks,Landmark,Vec} from '../types';
 import type {DetectedPoint} from './fitting';
-import {sampleMask} from './contour-evidence';
+import {sampleMask,upperFaceControls} from './contour-evidence';
+import {quadraticMinima} from './quadratic-minima';
 
 const chain=[127,234,93,132,58,172,136,150,149,176,148,152,377,400,378,379,365,397,288,361,323,454,356];
 const controls:Record<string,number[]>={p18:[127],p28:[234],p21:[132],p61:[58],p22:[172],p24:[150,149],p15:[152],p25:[379,378],p23:[397],p20:[361],p29:[454],p19:[356]};
@@ -40,11 +41,10 @@ export function reviewVisibleContour(landmarks:Landmark[],current:DetectedPoint[
   support.push(strengths);unary.push(row);
  }
  // A smooth displacement field favors coherent changes along one ordered curve.
- const transition=Array.from({length:columns},(_,j)=>Float64Array.from(offsets,d=>.8*((offsets[j]-d)/Math.max(span*.025,1))**2));
+ const transitionScale=.8*(2*radius/(columns-1)/Math.max(span*.025,1))**2;
  let cost=unary[0];const back:Uint8Array[]=[];
  for(let i=1;i<rows;i++){
-  const next=new Float64Array(columns),indices=new Uint8Array(columns);
-  for(let j=0;j<columns;j++){let best=Infinity,index=0;for(let k=0;k<columns;k++){const value=cost[k]+transition[k][j];if(value<best){best=value;index=k;}}next[j]=best+unary[i][j];indices[j]=index;}
+  const indices=quadraticMinima(cost,transitionScale),next=Float64Array.from(indices,(k,j)=>cost[k]+transitionScale*(j-k)**2+unary[i][j]);
   back.push(indices);cost=next;
  }
  let index=0;for(let j=1;j<columns;j++)if(cost[j]<cost[index])index=j;
@@ -57,6 +57,10 @@ export function reviewVisibleContour(landmarks:Landmark[],current:DetectedPoint[
   if(!supported[nearest])return {...p,confidence:Math.min(p.confidence,.55),review:'Face boundary has weak image support. Check this control.'};
   const point=mix(chosen[a],chosen[a+1],t),x=point[0]/width,y=point[1]/height;
   if(x<0||y<0||x>1||y>1)return p;
+  if(upperFaceControls.has(p.id)){
+   const seed=mix(base[a],base[a+1],t),side=p.id==='p18'||p.id==='p28'?-1:1,outward=side*((point[0]-seed[0])*eye[0]+(point[1]-seed[1])*eye[1]),texel=1/Math.hypot(eye[0]*face.width/width,eye[1]*face.height/height);
+   if(outward>Math.max(span*.012,texel*.75))return {...p,confidence:Math.min(p.confidence,.55),review:'Skin selection extends beyond the face contour. Detector position kept; check this control.'};
+  }
   return {...p,x,y,confidence:Math.min(.9,.7+support[nearest][path[nearest]]*.2),review:undefined};
  });
 }

@@ -21,5 +21,5 @@ export function activeControlCount(project:Project):number{
 export function relevantLandmarkNotes(note:string|undefined,recipe:Recipe):string|undefined{
  if(!note)return note;
  const regions=[...(recipe.hairControls===true?['Hair']:[]),...(recipe.earControls!==false?['ears']:[]),'forehead'];
- return note.replace('Hair, ears, forehead and neck need review',`${regions.join(', ')} controls need review`);
+ return note.replace('Hair, ears, forehead and neck need review',`${regions.join(', ')} controls need review`).replace('Orange controls are estimates. ','');
 }

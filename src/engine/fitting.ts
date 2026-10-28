@@ -1,9 +1,10 @@
 /* Initialization only. Rendering uses the visible, editable correspondence set. */
 import type {AnalysisMasks,Landmark,Mask,PointDefinition,Source,Template,Vec} from '../types';
-import {reviewFaceContour,reviewFeatureEvidence,reviewContourShape} from './contour-evidence';
+import {reviewFaceContour,reviewFeatureEvidence,reviewContourShape,sampleMask} from './contour-evidence';
+import {headMaskFromAnalysis,reviewFrontOpening} from './head-evidence';
 import {reviewVisibleContour} from './visible-contour';
 export interface DetectedPoint {x:number;y:number;}
-export const FIT_VERSION=8;
+export const FIT_VERSION=10;
 export const CALIBRATION_VERSION='reference-478-v1';
 const finite=(p:DetectedPoint|undefined):p is DetectedPoint=>!!p&&Number.isFinite(p.x)&&Number.isFinite(p.y);
 // Recipes are fixed correspondences, in image-side convention. Unsupported
@@ -42,20 +43,15 @@ export function observe(current:DetectedPoint[],width:number,height:number):Sour
 
 /** First nearby supported head exit only. Never clamp an estimate to a crop. */
 export function headBoundary(mask:Mask,center:Vec,p:Vec):{point:Vec;reason?:string}{
- const dx=p[0]-center[0],dy=p[1]-center[1],at=(x:number,y:number)=>mask.data[Math.floor(y*mask.height)*mask.width+Math.floor(x*mask.width)]>127;
- let seen=false,previous=0,gaps=0;
- for(let t=.15;t<=1.35;t+=.01){const x=center[0]+dx*t,y=center[1]+dy*t;if(x<=0||y<=0||x>=1||y>=1)return {point:p,reason:'Head boundary reaches the crop'};
-  if(at(x,y)){seen=true;previous=t;gaps=0;}else if(seen&&++gaps>=3){if(previous<.55)return {point:p,reason:'Head boundary is weak'};return {point:[center[0]+dx*previous,center[1]+dy*previous]};}
+ const dx=p[0]-center[0],dy=p[1]-center[1],length=Math.hypot(dx*mask.width,dy*mask.height);if(length<2)return {point:p,reason:'Head boundary is weak'};
+ const step=Math.min(.01,.5/length);let seen=false,previous=0,gaps=0;
+ for(let t=.15;t<=1.75;t+=step){const x=center[0]+dx*t,y=center[1]+dy*t;if(x<=0||y<=0||x>=1||y>=1)return {point:p,reason:'Head boundary reaches the crop'};
+  if(sampleMask(mask,x,y)>.5){seen=true;previous=t;gaps=0;}else if(seen&&(gaps+=step*length)>=1.5){if(previous<.3)return {point:p,reason:'Head boundary is weak'};const edge=previous+step/2;return {point:[center[0]+dx*edge,center[1]+dy*edge]};}
  }
  return {point:p,reason:'Head boundary is not clear'};
 }
 const headIds=['p50','p51','p48','p47','p54','p49','p53','p52'];
-const headNeighbors:Record<string,string[]>={
- p50:['p51','p48','p26','p18','p08','p09'],p51:['p50','p48','p26','p41','p08','p09'],
- p48:['p51','p47','p26','p41','p57'],p47:['p48','p54','p41','p57','p26','p27'],
- p54:['p47','p49','p41','p57','p27'],p49:['p54','p53','p27','p41','p57'],
- p53:['p49','p52','p27','p05','p06','p10'],p52:['p53','p49','p27','p19','p06','p10']
-};
+const headInnerEdges:Record<string,[string,string]>={p50:['p26','p18'],p51:['p26','p41'],p48:['p26','p41'],p47:['p26','p27'],p54:['p26','p27'],p49:['p41','p27'],p53:['p41','p27'],p52:['p27','p19']};
 /** Review mask evidence at initialization. A face-skin exit may be an opening
  * inside the outer head boundary, so radial order alone is insufficient. Reject the
  * whole proposed head group rather than partially deforming an uncertain edge.
@@ -68,9 +64,10 @@ export function reviewHeadBoundaries(baseline:Landmark[],proposed:Landmark[],wid
  let rejected=false;
  for(const id of headIds){const a=before.get(id),A=after.get(id);if(!a||!A)continue;
   for(const other of proposed){if(other.id===id)continue;const b=before.get(other.id);if(b&&Math.hypot((A.x-other.x)*width,(A.y-other.y)*height)<separation&&Math.hypot((a.x-b.x)*width,(a.y-b.y)*height)>=separation)rejected=true;}
-  const neighbors=headNeighbors[id].filter(id=>before.has(id)&&after.has(id));
-  for(let i=0;i<neighbors.length;i++)for(let j=i+1;j<neighbors.length;j++){
-   const oldArea=area(a,before.get(neighbors[i])!,before.get(neighbors[j])!),newArea=area(A,after.get(neighbors[i])!,after.get(neighbors[j])!);
+  // Stay outside the corresponding face edge. Arbitrary triangles between
+  // distant head and brow points can flip during a valid silhouette correction.
+  const pair=headInnerEdges[id];if(pair.every(id=>before.has(id)&&after.has(id))){
+   const oldArea=area(a,before.get(pair[0])!,before.get(pair[1])!),newArea=area(A,after.get(pair[0])!,after.get(pair[1])!);
    if(Math.abs(oldArea)>minArea&&(oldArea*newArea<=0||Math.abs(newArea)<Math.abs(oldArea)*.05))rejected=true;
   }
  }
@@ -80,6 +77,7 @@ export function reviewHeadBoundaries(baseline:Landmark[],proposed:Landmark[],wid
  return {landmarks:rejected?proposed.map(p=>heads.has(p.id)?before.get(p.id)??p:p):proposed,rejected};
 }
 export function fitLandmarks(template:Template,current:DetectedPoint[],reference:DetectedPoint[],width:number,height:number,headMask?:Mask,analysisMasks?:AnalysisMasks):{landmarks:Landmark[];observation:Source['observation'];note?:string}{
+ headMask??=headMaskFromAnalysis(analysisMasks);
  const observation=observe(current,width,height),reasons=new Set<string>(),unadjusted=new Map<string,Vec>();
  let landmarks=template.points.map(def=>{
   let xy=semanticPoint(def,current,reference,width/height),confidence=.85;
@@ -89,6 +87,7 @@ export function fitLandmarks(template:Template,current:DetectedPoint[],reference
   unadjusted.set(def.id,xy);
   if(['hair','ears','neck','clothing'].includes(def.region)||['p57','p58','p59'].includes(def.id)){confidence=.4;reasons.add('Hair, ears, forehead and neck need review');}
   if(/^p(47|48|49|50|51|52|53|54)$/.test(def.id)&&headMask&&finite(current[1])){const boundary=headBoundary(headMask,[current[1].x,current[1].y],xy);xy=boundary.point;if(boundary.reason)reasons.add(boundary.reason);else confidence=.6;}
+  if(def.id==='p41'&&analysisMasks?.face){const opening=reviewFrontOpening(xy,current,width,height,analysisMasks);xy=opening.point;if(opening.supported)confidence=.75;else reasons.add('Front hair opening needs review');}
   if(def.region==='brows')confidence=.65;
   if(observation&&Math.abs(observation.turn)>.32&&['outline','eyes','brows'].includes(def.region)){confidence=Math.min(confidence,.6);reasons.add('Turned face: check the far eye and outline');}
   if(def.region==='eyes'){
@@ -107,7 +106,7 @@ export function fitLandmarks(template:Template,current:DetectedPoint[],reference
  if(landmarks.some(p=>p.autoDisabled))reasons.add('Covered face-boundary controls are excluded until reviewed');
  if(headMask){const baseline=landmarks.map(p=>{const xy=unadjusted.get(p.id)!;return {...p,x:xy[0],y:xy[1],enabled:xy[0]>=0&&xy[0]<=1&&xy[1]>=0&&xy[1]<=1,confidence:headIds.includes(p.id)?.4:p.confidence};}),review=reviewHeadBoundaries(baseline,landmarks,width,height);landmarks=review.landmarks;if(review.rejected)reasons.add('Head boundary conflicts with face controls; estimated positions kept');}
  if(landmarks.some(p=>p.x<0||p.x>1||p.y<0||p.y>1))reasons.add('Outside-photo controls are disabled in all-source correspondence');
- return {landmarks,observation,note:reasons.size?[...reasons].join('. ')+'. Orange controls are estimates. Left and Right mean image side.':undefined};
+ return {landmarks,observation,note:reasons.size?[...reasons].join('. ')+'. Left and Right mean image side.':undefined};
 }
 
  export const oval=[10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54,103,67,109];

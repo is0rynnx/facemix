@@ -36,6 +36,7 @@ var FaceMixFitting = (() => {
 
   // src/engine/contour-evidence.ts
   var adjacent = { p18: [162, 234], p19: [389, 454], p28: [127, 93], p29: [356, 323], p21: [93, 58], p61: [132, 172], p22: [58, 136], p24: [136, 148], p15: [148, 377], p25: [365, 400], p23: [288, 365], p20: [323, 288] };
+  var upperFaceControls = /* @__PURE__ */ new Set(["p18", "p19", "p28", "p29"]);
   function sampleMask(mask, x, y) {
     if (!mask || x < 0 || y < 0 || x > 1 || y > 1) return 0;
     const px = x * mask.width - 0.5, py = y * mask.height - 0.5, ix = Math.floor(px), iy = Math.floor(py), fx = px - ix, fy = py - iy;
@@ -81,6 +82,7 @@ var FaceMixFitting = (() => {
     }
     const best = candidates.sort((a2, b2) => Math.abs(a2.distance) - Math.abs(b2.distance))[0];
     if (!best) return { ...point2, confidence: Math.min(point2.confidence, 0.55), review: "Face boundary has weak image support. Check this control." };
+    if (upperFaceControls.has(point2.id) && best.distance > Math.max(span * 0.012, texel * 0.75)) return { ...point2, confidence: Math.min(point2.confidence, 0.55), review: "Skin selection extends beyond the face contour. Detector position kept; check this control." };
     const xy = [point2.x + nx * best.distance / width, point2.y + ny * best.distance / height];
     if (xy.some((v) => v < 0 || v > 1)) return point2;
     return { ...point2, x: xy[0], y: xy[1], confidence: Math.min(0.9, 0.7 + best.strength * 0.2), review: void 0 };
@@ -103,6 +105,61 @@ var FaceMixFitting = (() => {
       return { ...p, x: original.x, y: original.y, confidence: Math.min(p.confidence, 0.55), review: "Skin selection has an abrupt upper-cheek bend. Detector position kept; check this control." };
     });
     return rejected ? reviewed : proposed;
+  }
+
+  // src/engine/head-evidence.ts
+  function headMaskFromAnalysis(masks) {
+    const layers = [masks?.face, masks?.hair, masks?.accessories].filter((m) => !!m);
+    if (!masks?.face || !masks.hair || !layers.length) return;
+    const { width, height } = masks.face;
+    return { width, height, data: Uint8Array.from({ length: width * height }, (_, i) => Math.round(255 * Math.min(1, layers.reduce((sum, m) => sum + (m.width === width && m.height === height ? m.data[i] / 255 : sampleMask(m, (i % width + 0.5) / width, (Math.floor(i / width) + 0.5) / height)), 0)))) };
+  }
+  function reviewFrontOpening(seed, current, width, height, masks) {
+    const face = masks.face, a = current[33], b = current[263], nose = current[1];
+    if (!face || !a || !b || !nose || [a, b, nose].some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return { point: seed, supported: false };
+    const span = Math.hypot((b.x - a.x) * width, (b.y - a.y) * height), dx = (seed[0] - nose.x) * width, dy = (seed[1] - nose.y) * height, length = Math.hypot(dx, dy);
+    if (span < 4 || length < span * 0.25) return { point: seed, supported: false };
+    const nx = dx / length, ny = dy / length, texel = 1 / Math.hypot(nx * face.width / width, ny * face.height / height), step = Math.max(0.5, texel * 0.5), side = Math.max(span * 0.025, texel);
+    const at = (d) => {
+      let sum = 0;
+      for (const s of [-side, 0, side]) sum += sampleMask(face, nose.x + (nx * d - ny * s) / width, nose.y + (ny * d + nx * s) / height);
+      return sum / 3;
+    };
+    let previous = at(length * 0.55);
+    for (let d = length * 0.55 + step; d <= length + span * 0.25; d += step) {
+      const value = at(d);
+      if (previous >= 0.5 && value < 0.5) {
+        const distance = d - step + step * (previous - 0.5) / Math.max(1e-9, previous - value), probe = Math.max(texel * 1.5, span * 0.025), p = [nose.x + nx * distance / width, nose.y + ny * distance / height];
+        const cover = Math.max(sampleMask(masks.hair, p[0] + nx * probe / width, p[1] + ny * probe / height), sampleMask(masks.clothing, p[0] + nx * probe / width, p[1] + ny * probe / height), sampleMask(masks.accessories, p[0] + nx * probe / width, p[1] + ny * probe / height));
+        if (p.every((v) => v > 0 && v < 1) && at(distance - probe) > 0.65 && at(distance + probe) < 0.35 && cover > 0.5) return { point: p, supported: true };
+      }
+      previous = value;
+    }
+    return { point: seed, supported: false };
+  }
+
+  // src/engine/quadratic-minima.ts
+  function quadraticMinima(cost, scale) {
+    const n = cost.length, result = new Uint8Array(n), vertices = new Uint8Array(n), limits = new Float64Array(n + 1);
+    let top = 0;
+    limits[0] = -Infinity;
+    limits[1] = Infinity;
+    for (let q = 1; q < n; q++) {
+      let p = vertices[top], cross = (cost[q] - cost[p]) / (2 * scale * (q - p)) + (q + p) / 2;
+      while (top > 0 && cross <= limits[top]) {
+        p = vertices[--top];
+        cross = (cost[q] - cost[p]) / (2 * scale * (q - p)) + (q + p) / 2;
+      }
+      vertices[++top] = q;
+      limits[top] = cross;
+      limits[top + 1] = Infinity;
+    }
+    top = 0;
+    for (let j = 0; j < n; j++) {
+      while (limits[top + 1] < j) top++;
+      result[j] = vertices[top];
+    }
+    return result;
   }
 
   // src/engine/visible-contour.ts
@@ -154,23 +211,11 @@ var FaceMixFitting = (() => {
       support.push(strengths);
       unary.push(row);
     }
-    const transition = Array.from({ length: columns }, (_, j) => Float64Array.from(offsets, (d) => 0.8 * ((offsets[j] - d) / Math.max(span * 0.025, 1)) ** 2));
+    const transitionScale = 0.8 * (2 * radius / (columns - 1) / Math.max(span * 0.025, 1)) ** 2;
     let cost = unary[0];
     const back = [];
     for (let i = 1; i < rows; i++) {
-      const next = new Float64Array(columns), indices = new Uint8Array(columns);
-      for (let j = 0; j < columns; j++) {
-        let best = Infinity, index2 = 0;
-        for (let k = 0; k < columns; k++) {
-          const value = cost[k] + transition[k][j];
-          if (value < best) {
-            best = value;
-            index2 = k;
-          }
-        }
-        next[j] = best + unary[i][j];
-        indices[j] = index2;
-      }
+      const indices = quadraticMinima(cost, transitionScale), next = Float64Array.from(indices, (k, j) => cost[k] + transitionScale * (j - k) ** 2 + unary[i][j]);
       back.push(indices);
       cost = next;
     }
@@ -188,12 +233,16 @@ var FaceMixFitting = (() => {
       if (!supported[nearest]) return { ...p, confidence: Math.min(p.confidence, 0.55), review: "Face boundary has weak image support. Check this control." };
       const point2 = mix(chosen[a], chosen[a + 1], t), x = point2[0] / width, y = point2[1] / height;
       if (x < 0 || y < 0 || x > 1 || y > 1) return p;
+      if (upperFaceControls.has(p.id)) {
+        const seed2 = mix(base[a], base[a + 1], t), side = p.id === "p18" || p.id === "p28" ? -1 : 1, outward = side * ((point2[0] - seed2[0]) * eye[0] + (point2[1] - seed2[1]) * eye[1]), texel = 1 / Math.hypot(eye[0] * face.width / width, eye[1] * face.height / height);
+        if (outward > Math.max(span * 0.012, texel * 0.75)) return { ...p, confidence: Math.min(p.confidence, 0.55), review: "Skin selection extends beyond the face contour. Detector position kept; check this control." };
+      }
       return { ...p, x, y, confidence: Math.min(0.9, 0.7 + support[nearest][path[nearest]] * 0.2), review: void 0 };
     });
   }
 
   // src/engine/fitting.ts
-  var FIT_VERSION = 8;
+  var FIT_VERSION = 10;
   var CALIBRATION_VERSION = "reference-478-v1";
   var finite = (p) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y);
   var semanticVertices = { p01: 133, p02: 362, p03: 263, p04: 33, p11: 2, p12: 6, p13: 327, p14: 98, p15: 152, p16: 61, p17: 291, p18: 127, p19: 356, p20: 361, p21: 132, p22: 172, p23: 397, p26: 54, p27: 284, p28: 234, p29: 454, p30: 468, p31: 473, p38: 37, p39: 267, p40: 17, p46: 200, p55: 1, p61: 58 };
@@ -230,33 +279,27 @@ var FaceMixFitting = (() => {
     return { turn: (2 * nose - l - r) / Math.max(1e-6, r - l), mouthOpen: distance(13, 14) / Math.max(1e-6, distance(61, 291)), gaze: [dot([iris[0] - (a[0] + inner[0]) / 2, iris[1] - (a[1] + inner[1]) / 2], ex) / eyeSpan, dot([iris[0] - (upper[0] + lower[0]) / 2, iris[1] - (upper[1] + lower[1]) / 2], ey) / eyeSpan] };
   }
   function headBoundary(mask, center, p) {
-    const dx = p[0] - center[0], dy = p[1] - center[1], at = (x, y) => mask.data[Math.floor(y * mask.height) * mask.width + Math.floor(x * mask.width)] > 127;
+    const dx = p[0] - center[0], dy = p[1] - center[1], length = Math.hypot(dx * mask.width, dy * mask.height);
+    if (length < 2) return { point: p, reason: "Head boundary is weak" };
+    const step = Math.min(0.01, 0.5 / length);
     let seen = false, previous = 0, gaps = 0;
-    for (let t = 0.15; t <= 1.35; t += 0.01) {
+    for (let t = 0.15; t <= 1.75; t += step) {
       const x = center[0] + dx * t, y = center[1] + dy * t;
       if (x <= 0 || y <= 0 || x >= 1 || y >= 1) return { point: p, reason: "Head boundary reaches the crop" };
-      if (at(x, y)) {
+      if (sampleMask(mask, x, y) > 0.5) {
         seen = true;
         previous = t;
         gaps = 0;
-      } else if (seen && ++gaps >= 3) {
-        if (previous < 0.55) return { point: p, reason: "Head boundary is weak" };
-        return { point: [center[0] + dx * previous, center[1] + dy * previous] };
+      } else if (seen && (gaps += step * length) >= 1.5) {
+        if (previous < 0.3) return { point: p, reason: "Head boundary is weak" };
+        const edge = previous + step / 2;
+        return { point: [center[0] + dx * edge, center[1] + dy * edge] };
       }
     }
     return { point: p, reason: "Head boundary is not clear" };
   }
   var headIds = ["p50", "p51", "p48", "p47", "p54", "p49", "p53", "p52"];
-  var headNeighbors = {
-    p50: ["p51", "p48", "p26", "p18", "p08", "p09"],
-    p51: ["p50", "p48", "p26", "p41", "p08", "p09"],
-    p48: ["p51", "p47", "p26", "p41", "p57"],
-    p47: ["p48", "p54", "p41", "p57", "p26", "p27"],
-    p54: ["p47", "p49", "p41", "p57", "p27"],
-    p49: ["p54", "p53", "p27", "p41", "p57"],
-    p53: ["p49", "p52", "p27", "p05", "p06", "p10"],
-    p52: ["p53", "p49", "p27", "p19", "p06", "p10"]
-  };
+  var headInnerEdges = { p50: ["p26", "p18"], p51: ["p26", "p41"], p48: ["p26", "p41"], p47: ["p26", "p27"], p54: ["p26", "p27"], p49: ["p41", "p27"], p53: ["p41", "p27"], p52: ["p27", "p19"] };
   function reviewHeadBoundaries(baseline, proposed, width, height) {
     const before = new Map(baseline.map((p) => [p.id, p])), after = new Map(proposed.map((p) => [p.id, p])), heads = new Set(headIds);
     const changed = headIds.some((id) => {
@@ -278,9 +321,9 @@ var FaceMixFitting = (() => {
         const b = before.get(other.id);
         if (b && Math.hypot((A.x - other.x) * width, (A.y - other.y) * height) < separation && Math.hypot((a.x - b.x) * width, (a.y - b.y) * height) >= separation) rejected = true;
       }
-      const neighbors = headNeighbors[id].filter((id2) => before.has(id2) && after.has(id2));
-      for (let i = 0; i < neighbors.length; i++) for (let j = i + 1; j < neighbors.length; j++) {
-        const oldArea = area(a, before.get(neighbors[i]), before.get(neighbors[j])), newArea = area(A, after.get(neighbors[i]), after.get(neighbors[j]));
+      const pair = headInnerEdges[id];
+      if (pair.every((id2) => before.has(id2) && after.has(id2))) {
+        const oldArea = area(a, before.get(pair[0]), before.get(pair[1])), newArea = area(A, after.get(pair[0]), after.get(pair[1]));
         if (Math.abs(oldArea) > minArea && (oldArea * newArea <= 0 || Math.abs(newArea) < Math.abs(oldArea) * 0.05)) rejected = true;
       }
     }
@@ -290,6 +333,7 @@ var FaceMixFitting = (() => {
     return { landmarks: rejected ? proposed.map((p) => heads.has(p.id) ? before.get(p.id) ?? p : p) : proposed, rejected };
   }
   function fitLandmarks(template, current, reference, width, height, headMask, analysisMasks) {
+    headMask ??= headMaskFromAnalysis(analysisMasks);
     const observation = observe(current, width, height), reasons = /* @__PURE__ */ new Set(), unadjusted = /* @__PURE__ */ new Map();
     let landmarks = template.points.map((def) => {
       let xy = semanticPoint(def, current, reference, width / height), confidence = 0.85;
@@ -317,6 +361,12 @@ var FaceMixFitting = (() => {
         xy = boundary.point;
         if (boundary.reason) reasons.add(boundary.reason);
         else confidence = 0.6;
+      }
+      if (def.id === "p41" && analysisMasks?.face) {
+        const opening = reviewFrontOpening(xy, current, width, height, analysisMasks);
+        xy = opening.point;
+        if (opening.supported) confidence = 0.75;
+        else reasons.add("Front hair opening needs review");
       }
       if (def.region === "brows") confidence = 0.65;
       if (observation && Math.abs(observation.turn) > 0.32 && ["outline", "eyes", "brows"].includes(def.region)) {
@@ -365,7 +415,7 @@ var FaceMixFitting = (() => {
       if (review.rejected) reasons.add("Head boundary conflicts with face controls; estimated positions kept");
     }
     if (landmarks.some((p) => p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1)) reasons.add("Outside-photo controls are disabled in all-source correspondence");
-    return { landmarks, observation, note: reasons.size ? [...reasons].join(". ") + ". Orange controls are estimates. Left and Right mean image side." : void 0 };
+    return { landmarks, observation, note: reasons.size ? [...reasons].join(". ") + ". Left and Right mean image side." : void 0 };
   }
   var oval = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
   var jaw = /* @__PURE__ */ new Set(["p15", "p20", "p21", "p22", "p23", "p24", "p25", "p61"]);

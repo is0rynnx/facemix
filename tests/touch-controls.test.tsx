@@ -46,6 +46,14 @@ it('shows the active isolate state for toolbar and source menu actions',async()=
  fireEvent.click(screen.getByRole('button',{name:'Source actions for Source B',exact:true}));fireEvent.click(screen.getByRole('menuitem',{name:'Isolate selected',exact:true}));
  expect(useStudio.getState().isolatedSource).toBe('touch-1');expect(screen.getByRole('button',{name:'Restore mix',exact:true}).classList.contains('active')).toBe(true);
 });
+it('collapses Shape sections without resetting edited values',async()=>{
+ await open();fireEvent.click(screen.getByRole('button',{name:'Shape',exact:true}));
+ const eyes=screen.getByText('Eyes',{selector:'summary'}),group=eyes.closest('details')!;
+ expect(group.open).toBe(false);fireEvent.click(eyes);expect(group.open).toBe(true);
+ fireEvent.change(screen.getByRole('slider',{name:'Eye size',exact:true}),{target:{value:'12'}});
+ fireEvent.click(eyes);expect(group.open).toBe(false);expect(useStudio.getState().project.recipe.faceEdits?.eyeSize).toBe(12);
+ fireEvent.click(eyes);expect((screen.getByRole('spinbutton',{name:'Eye size value',exact:true}) as HTMLInputElement).value).toBe('12');
+});
 it('keeps photo names and selection when changing library views and screen width',()=>{
  const name='A long photo name for the mobile library';
  useLibrary.setState(s=>({data:{...s.data,entries:s.data.entries.map((entry,i)=>i===0?{...entry,name}:entry)}}));
