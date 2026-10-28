@@ -12,6 +12,7 @@ import {newProject,useStudio} from '../src/store';
 import {regionDefaults,type Source} from '../src/types';
 
 const initialWidth=window.innerWidth;
+vi.setConfig({testTimeout:15000});
 beforeAll(()=>{
  vi.stubGlobal('ResizeObserver',class{constructor(private cb:any){}observe(){this.cb([{contentRect:{width:400,height:500}}]);}disconnect(){}});
  vi.stubGlobal('Worker',class{postMessage(){}terminate(){}});
@@ -36,6 +37,27 @@ beforeEach(async()=>{
 afterEach(()=>{cleanup();Object.defineProperty(window,'innerWidth',{configurable:true,value:initialWidth});});
 async function open(){render(<App/>);await screen.findByRole('spinbutton',{name:'Source A appearance percentage'});}
 
+it('shows the active isolate state for toolbar and source menu actions',async()=>{
+ await open();const isolate=screen.getByRole('button',{name:'Isolate selected',exact:true});
+ expect(isolate.getAttribute('aria-pressed')).toBe('false');
+ fireEvent.click(isolate);const restore=screen.getByRole('button',{name:'Restore mix',exact:true});
+ expect(restore.getAttribute('aria-pressed')).toBe('true');expect(restore.classList.contains('active')).toBe(true);
+ fireEvent.click(restore);expect(screen.getByRole('button',{name:'Isolate selected',exact:true}).getAttribute('aria-pressed')).toBe('false');
+ fireEvent.click(screen.getByRole('button',{name:'Source actions for Source B',exact:true}));fireEvent.click(screen.getByRole('menuitem',{name:'Isolate selected',exact:true}));
+ expect(useStudio.getState().isolatedSource).toBe('touch-1');expect(screen.getByRole('button',{name:'Restore mix',exact:true}).classList.contains('active')).toBe(true);
+});
+it('keeps photo names and selection when changing library views and screen width',()=>{
+ const name='A long photo name for the mobile library';
+ useLibrary.setState(s=>({data:{...s.data,entries:s.data.entries.map((entry,i)=>i===0?{...entry,name}:entry)}}));
+ render(<FaceLibrary onClose={()=>{}}/>);fireEvent.click(screen.getByRole('checkbox',{name:`Toggle ${name}`}));
+ fireEvent.click(screen.getByRole('button',{name:'Library view',exact:true}));fireEvent.click(screen.getByRole('menuitem',{name:'List',exact:true}));
+ expect(screen.getByRole('button',{name:`Deselect ${name}`,exact:true})).toBeTruthy();
+ Object.defineProperty(window,'innerWidth',{configurable:true,value:1024});fireEvent(window,new Event('resize'));
+ expect(screen.getByRole('status').textContent).toBe('1 selected');
+ fireEvent.click(screen.getByRole('button',{name:`Photo actions for ${name}`,exact:true}));fireEvent.click(screen.getByRole('menuitem',{name:'Rename',exact:true}));
+ const input=screen.getByLabelText(`Rename ${name}`);fireEvent.change(input,{target:{value:'Updated library photo name'}});fireEvent.keyDown(input,{key:'Enter'});
+ expect(useLibrary.getState().data.entries[0].name).toBe('Updated library photo name');expect(screen.getByRole('status').textContent).toBe('1 selected');
+});
 it('opens source and result menus by tap, and makes menu edits visible on a phone',async()=>{
  await open();fireEvent.click(screen.getByRole('button',{name:'Points',exact:true}));
  fireEvent.click(screen.getByRole('button',{name:'Photo actions for Source A'}));

@@ -105,3 +105,31 @@
  .editor-card-heading:has(>.touch-menu-button)>span:nth-child(2){display:none}
  .source-percentage{min-width:42px;min-height:32px}
 }
+
+@media(max-width:640px){
+ .library-body>aside{width:clamp(124px,34vw,148px)}
+ .library-folder{align-items:flex-start;gap:4px;font-size:12px;min-height:40px}
+ .library-folder .editable-name{white-space:normal;overflow-wrap:anywhere;text-overflow:clip;line-height:16px;padding:6px 0}
+ .library-folder.child-folder{padding-left:8px}.library-folder.child-folder>svg{display:none}
+ .library-folder>.touch-menu-button{width:28px;min-height:32px;height:32px}
+ .library-folder:has(.inline-name){flex-wrap:wrap}.library-folder .inline-name{order:3;flex:1 1 100%;width:100%;min-width:0}
+ .library-dialog input{font-size:16px}.library-toolbar label>svg{flex:none}
+ .library-toolbar>.icon-button,.library-toolbar>.touch-menu-button{flex:none;min-width:32px;min-height:32px}
+ .library-face .editable-name{white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:16px;height:48px;padding:6px 8px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+ .library-face>.library-photo-menu{width:32px;min-height:32px;height:32px}
+ .library-check{width:28px;height:28px}
+ .list-view .library-face{gap:6px;padding:4px;align-items:center}
+ .list-view .library-face>img,.list-view .library-face>.library-failed{display:none}
+ .list-view .library-face .editable-name{height:auto;min-height:0;max-height:48px;padding:0;flex:1;-webkit-line-clamp:3}
+ .list-view .library-face .inline-name{min-width:0;flex:1;width:0}
+ .library-dialog>footer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px}
+ .library-dialog>footer>span{grid-column:1/-1;min-height:16px;max-height:64px;overflow:auto;overflow-wrap:anywhere;font-size:12px;line-height:16px}
+ .library-dialog>footer>button:not(.primary){grid-column:1;justify-self:start}
+ .library-dialog>footer>.primary{grid-column:2;min-width:0;max-width:100%}
+}
+@media(max-width:640px){
+ .library-folder:has(.folder-toggle){display:grid;grid-template-columns:minmax(0,1fr) 28px;gap:2px 4px}
+ .library-folder:has(.folder-toggle) .folder-toggle{grid-column:1;grid-row:1}
+ .library-folder:has(.folder-toggle)>.touch-menu-button{grid-column:2;grid-row:1}
+ .library-folder:has(.folder-toggle) .editable-name,.library-folder:has(.folder-toggle) .inline-name{grid-column:1/-1;grid-row:2;padding:0}
+}
