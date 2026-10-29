@@ -151,3 +151,12 @@ it('keeps only the newest pending region preview and discards stale worker resul
   act(()=>instance.onmessage({data:{id:post.mock.calls[1][0].id,width:1,height:1,data:new Uint8ClampedArray(4)}}));expect(draw).toHaveBeenCalledTimes(1);view.unmount();expect(terminate).toHaveBeenCalledOnce();
  }finally{vi.stubGlobal('Worker',OriginalWorker);HTMLCanvasElement.prototype.getContext=context;}
 });
+it('does not offer automatic recovery snapshots in the project menu',async()=>{
+ await open();
+ const project=useStudio.getState().project;
+ act(()=>useStudio.setState({project:{...project,variants:[{id:'old-recovery',kind:'recovery',name:'Control layout backup',created:1,sources:project.sources,recipe:project.recipe}]}}));
+ fireEvent.click(screen.getByRole('button',{name:project.name,exact:true}));
+ expect(screen.queryByText(/Recovery snapshots/)).toBeNull();
+ expect(screen.queryByText('Control layout backup')).toBeNull();
+ expect(useStudio.getState().project.variants[0].id).toBe('old-recovery');
+});

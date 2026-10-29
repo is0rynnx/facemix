@@ -1,4 +1,5 @@
-import {recoverySnapshot} from './variants';
+import {RenderManager} from './render-manager';
+export {RenderManager} from './render-manager';
 import { assets, registerAsset } from './data';
 
 import { useStudio } from './store';
@@ -72,7 +73,7 @@ export async function analyzeSource(sourceId:string,maskOnly=false){
 
  const state=useStudio.getState(),source=state.project.sources.find(s=>s.id===sourceId),asset=assets.get(sourceId);if(!source||!asset)return;
 
- if(!maskOnly&&source.status!=='preparing'){state.checkpoint();if((source.fitVersion??0)<FIT_VERSION){const before=recoverySnapshot(state.project,`fit-${FIT_VERSION}`,`Landmark backup ${FIT_VERSION}`);if(before)state.change(p=>({...p,variants:[...p.variants,before]}),false);}}
+ if(!maskOnly&&source.status!=='preparing')state.checkpoint();
  state.updateSource(sourceId,{status:'preparing'},false);const mine=generation;
 
  try{let result=await detect(asset.blob);if(mine!==generation)return;if(!maskOnly){const selected=await selectFace(source,result);result=selected.result;sourceId=selected.sourceId;}if(mine!==generation)return;const current=useStudio.getState().project.sources.find(s=>s.id===sourceId);if(!current)return;const incoming=new Map(result.landmarks.map(p=>[p.id,p]));
@@ -228,22 +229,6 @@ export async function loadDemo(group:'reference',replace=false){
   appendSources(sources);state.change(p=>withMeasuredDetail(refreshDefaultLayout(p)),false);await prepare(sources.filter(s=>s.status==='preparing'),group==='reference');
 
  }catch(error){state.setStatus('Sample loading failed');state.notify(String(error));}
-
-}
-
-export class RenderManager{
-
- worker:Worker;job=0;registered=new Map<string,Blob>();onResult?:(result:RenderOutput)=>void;onError?:(message:string,diagnostics:RenderOutput['diagnostics'])=>void;
-
- constructor(){this.worker=new Worker(new URL('./workers/render.worker.ts',import.meta.url),{type:'module'});this.worker.onmessage=e=>{const m=e.data;if(m.job!==this.job){m.bitmap?.close();return;}if(m.type==='result')this.onResult?.(m);else if(m.type==='error')this.onError?.(m.message,m.diagnostics??[]);};this.worker.onerror=e=>this.onError?.(e.message||'The renderer could not start. Reload the app.',[]);}
-
- render(spec:RenderSpec){const needed=new Set(spec.sources.map(s=>s.id));for(const id of this.registered.keys())if(!needed.has(id)){this.worker.postMessage({type:'remove',id});this.registered.delete(id);}for(const s of spec.sources){const asset=assets.get(s.id);if(asset&&this.registered.get(s.id)!==asset.blob){this.registered.set(s.id,asset.blob);this.worker.postMessage({type:'asset',id:s.id,blob:asset.blob});}}
-
-  this.worker.postMessage({type:'render',job:++this.job,spec});}
-
- cancel(){this.job++;this.worker.postMessage({type:'cancel'});}
-
- dispose(){this.worker.terminate();}
 
 }
 

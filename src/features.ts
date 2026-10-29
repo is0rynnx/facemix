@@ -2,7 +2,6 @@ import detail from './feature-template.json';
 import reference from './reference-template.json';
 import calibration from './detector-calibration.json';
 import {headMaskFromAnalysis} from './engine/head-evidence';
-import {recoverySnapshot} from './variants';
 import {point,transfer,fitLandmarks,FIT_VERSION,semanticPoint} from './engine/fitting';
 
 import {applyBasis,mlsBasis,buildControls,signedArea,avoidFoldedTriangles} from './engine/math';
@@ -97,8 +96,7 @@ export function refreshAutomaticFit(project:Project):Project{
  if(!project.template.points.length||![reference.id,'face-controls'].includes(project.template.id))return project;
  const sources=project.sources.map(source=>source.landmarks.some(p=>!p.authored&&!p.locked&&(p.enabled||p.autoDisabled)&&!project.recipe.pins[p.id])?fitUnreviewed(source,project.template,project.recipe.pins):source);
  if(sources.every((source,i)=>source===project.sources[i]))return project;
- const backup=recoverySnapshot(project,`fit-${FIT_VERSION}`,`Landmark backup ${FIT_VERSION}`);
- return {...project,sources,variants:backup?[...project.variants,backup]:project.variants};
+ return {...project,sources};
 }
 
 /** Shape guides are visible correspondences. They are added only for an edited feature. */

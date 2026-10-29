@@ -4,10 +4,6 @@ const layoutNames=new Set(['Control layout backup','Before measured feature deta
 export function isRecovery(variant:Variant):boolean{return variant.kind?variant.kind==='recovery':layoutNames.has(variant.name)||/^(?:Before landmark fit v|Landmark backup )\d+$/.test(variant.name);}
 export function savedVariants(variants:Variant[]):Variant[]{return variants.filter(variant=>!isRecovery(variant));}
 export function nextVariantName(variants:Variant[]):string{let number=1;const names=new Set(savedVariants(variants).map(v=>v.name));while(names.has(`Variant ${number}`))number++;return `Variant ${number}`;}
-export function recoverySnapshot(project:Project,key:string,name='Control layout backup'):Variant|undefined{
- if(project.variants.some(variant=>variant.recoveryKey===key))return;
- return {id:crypto.randomUUID(),name,kind:'recovery',recoveryKey:key,sources:structuredClone(project.sources),recipe:structuredClone(project.recipe),template:structuredClone(project.template),created:Date.now()};
-}
 
 /** Retain recovery data without listing it as a user-saved variant. */
 export function classifyRecoveries(project:Project):Project{
