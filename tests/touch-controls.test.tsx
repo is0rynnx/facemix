@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react';
 import {afterEach,beforeAll,beforeEach,expect,it,vi} from 'vitest';
 import App from '../src/App';
+import {RegionOverlay} from '../src/components/RegionOverlay';
 import {FaceLibrary} from '../src/components/FaceLibrary';
 import {SourceCanvas} from '../src/components/SourceCanvas';
 import {autosave,registerAsset} from '../src/data';
@@ -120,4 +121,33 @@ it('cancels a polygon by tap without changing the mask and applies a completed o
  for(const [x,y] of [[100,100],[300,100],[200,350]])fireEvent.pointerDown(canvas,{button:0,clientX:x,clientY:y});
  fireEvent.click(screen.getByRole('button',{name:'Remove polygon area'}));expect(update).toHaveBeenCalledOnce();expect(update.mock.calls[0][0].data[20*40+20]).toBe(0);
  fireEvent.pointerDown(canvas,{button:0,clientX:100,clientY:100});view.rerender(<SourceCanvas source={source} zoom={1} tool="background" brush={.1} showMask showLabels={false} showLines={false}/>);expect(screen.queryByRole('button',{name:'Cancel polygon'})).toBeNull();
+});
+
+
+it('keeps the Help icon link and closes the dialog without changing the project',async()=>{
+ await open();const trigger=screen.getByRole('button',{name:/Help/});trigger.focus();fireEvent.click(trigger);
+ const dialog=screen.getByRole('dialog',{name:'FaceMix Help'}),close=screen.getByRole('button',{name:'Close help'}),link=screen.getByRole('link',{name:'FaceMix on GitHub'});
+ expect(document.activeElement).toBe(close);expect(link.textContent).toBe('');expect(link.getAttribute('href')).toBe('https://github.com/is0rynnx/facemix');
+ const before=useStudio.getState().project;fireEvent.keyDown(dialog,{key:'Delete'});fireEvent.keyDown(dialog,{key:'a'});expect(useStudio.getState().project).toBe(before);
+ fireEvent.keyDown(dialog,{key:'Escape'});expect(screen.queryByRole('dialog',{name:'FaceMix Help'})).toBeNull();expect(document.activeElement).toBe(trigger);
+});
+
+it('disables region shape controls without matching landmarks and keeps texture controls usable',async()=>{
+ await open();fireEvent.click(screen.getByRole('button',{name:'Regions',exact:true}));fireEvent.click(screen.getByText('Neck',{selector:'summary'}));
+ expect((screen.getByRole('slider',{name:'Source A neck shape'}) as HTMLInputElement).disabled).toBe(true);
+ const texture=screen.getByRole('slider',{name:'Source A neck appearance'});expect((texture as HTMLInputElement).disabled).toBe(false);
+ fireEvent.change(texture,{target:{value:'1.5'}});expect(useStudio.getState().project.sources[0].regionWeights.neck.appearance).toBe(1.5);
+});
+
+
+it('keeps only the newest pending region preview and discards stale worker results',()=>{
+ const OriginalWorker=window.Worker,context=HTMLCanvasElement.prototype.getContext,draw=vi.fn(),post=vi.fn(),terminate=vi.fn();let instance:any;
+ class RegionWorker {onmessage:any;onerror:any;postMessage=post;terminate=terminate;constructor(){instance=this;}}
+ vi.stubGlobal('Worker',RegionWorker);HTMLCanvasElement.prototype.getContext=(()=>({clearRect:()=>{},putImageData:draw})) as any;
+ try{
+  const project=newProject(),view=render(<RegionOverlay project={project} region="hair"/>);expect(post).toHaveBeenCalledTimes(1);
+  view.rerender(<RegionOverlay project={project} region="neck"/>);view.rerender(<RegionOverlay project={project} region="clothing"/>);expect(post).toHaveBeenCalledTimes(1);
+  act(()=>instance.onmessage({data:{id:post.mock.calls[0][0].id,width:1,height:1,data:new Uint8ClampedArray(4)}}));expect(draw).not.toHaveBeenCalled();expect(post).toHaveBeenCalledTimes(2);expect(post.mock.calls[1][0].region).toBe('clothing');
+  act(()=>instance.onmessage({data:{id:post.mock.calls[1][0].id,width:1,height:1,data:new Uint8ClampedArray(4)}}));expect(draw).toHaveBeenCalledTimes(1);view.unmount();expect(terminate).toHaveBeenCalledOnce();
+ }finally{vi.stubGlobal('Worker',OriginalWorker);HTMLCanvasElement.prototype.getContext=context;}
 });

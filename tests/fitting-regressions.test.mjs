@@ -5,7 +5,7 @@ import {pathToFileURL} from 'node:url';
 import {build} from 'esbuild';
 import {loadImage,createCanvas} from '@napi-rs/canvas';
 
-const compiled=await build({stdin:{contents:"export * from './src/engine/fitting';export * from './src/engine/contour-evidence';export * from './src/engine/visible-contour';export * from './src/engine/head-evidence';export * from './src/engine/quadratic-minima';export * from './src/features';export * from './src/measured-detail';export * from './src/engine/mask-feather';export * from './src/mask-selection';export * from './src/engine/math';export * from './src/types';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
+const compiled=await build({stdin:{contents:"export * from './src/engine/fitting';export * from './src/engine/eye-geometry';export * from './src/engine/face-edits';export * from './src/engine/ear-evidence';export * from './src/engine/regions';export * from './src/engine/region-evidence';export * from './src/landmark-policy';export * from './src/engine/contour-evidence';export * from './src/engine/visible-contour';export * from './src/engine/head-evidence';export * from './src/engine/quadratic-minima';export * from './src/features';export * from './src/measured-detail';export * from './src/engine/mask-feather';export * from './src/mask-selection';export * from './src/engine/math';export * from './src/types';",resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
 await fs.mkdir('test-results',{recursive:true});await fs.writeFile('test-results/fitting-regressions.mjs',compiled.outputFiles[0].text);
 const F=await import(pathToFileURL(process.cwd()+'/test-results/fitting-regressions.mjs'));
 const calibration=JSON.parse(await fs.readFile('src/detector-calibration.json','utf8')),reference=calibration.map(([x,y])=>({x,y})),original=JSON.parse(await fs.readFile('src/reference-template.json','utf8')),template={...original,id:'face-controls',points:original.points.filter(d=>!['p56','p58','p59','p60'].includes(d.id))};
@@ -50,12 +50,12 @@ test('recovers a nearby headwear opening and permits the far-side silhouette und
  assert(F.farSideContour('p18',mirrored,800,1000));assert(!F.farSideContour('p19',mirrored,800,1000));
 });
 
-test('upper eyelid flanks use native points and preserve edits, pins and saved variants',async()=>{
+test('eyelid flanks sample observed curves and preserve edits, pins and saved variants',async()=>{
  const source=JSON.parse(await fs.readFile('public/library/prepared/phenotypes-faces-annamidf.jpg.json','utf8'));source.status='ready';source.id='native';
  const project={id:'detail',revision:0,sources:[source],template,recipe:F.defaultRecipe(),variants:[]},updated=F.withMeasuredDetail(project),ids=['lid-160','lid-158','lid-385','lid-387'];
- for(const id of ids){const def=updated.template.points.find(d=>d.id===id),p=updated.sources[0].landmarks.find(p=>p.id===id);assert(p.enabled,id);assert.deepEqual([p.x,p.y],source.featurePoints['mp-'+def.detectorIndex]);}
- assert.deepEqual(updated.template.contours.find(c=>c.name==='Left eyelid').ids,['p04','lid-160','lid-159','lid-158','p01','lid-145']);
- assert.deepEqual(updated.template.contours.find(c=>c.name==='Right eyelid').ids,['p02','lid-385','lid-386','lid-387','p03','lid-374']);
+ for(const id of ids){const def=updated.template.points.find(d=>d.id===id),p=updated.sources[0].landmarks.find(p=>p.id===id);assert(p.enabled,id);assert.deepEqual([p.x,p.y],F.eyePoint(def.id,calibration.map((_,i)=>({x:source.featurePoints['mp-'+i][0],y:source.featurePoints['mp-'+i][1]})),source.width/source.height));}
+ assert.deepEqual(updated.template.contours.find(c=>c.name==='Left eyelid').ids,['p04','lid-160','lid-159','lid-158','p01','lid-153','lid-145','lid-144']);
+ assert.deepEqual(updated.template.contours.find(c=>c.name==='Right eyelid').ids,['p02','lid-385','lid-386','lid-387','p03','lid-373','lid-374','lid-380']);
  assert.equal(F.withMeasuredDetail(updated),updated);
  const edited=structuredClone(updated);edited.sources[0].landmarks.find(p=>p.id===ids[0]).authored=true;edited.sources[0].landmarks.find(p=>p.id===ids[1]).locked=true;edited.sources[0].landmarks.find(p=>p.id===ids[2]).enabled=false;edited.recipe.pins[ids[3]]=[.4,.4];
  edited.sources[0].featurePoints['mp-160']=[.1,.1];edited.variants=[{id:'saved',name:'Saved',sources:structuredClone(edited.sources),recipe:edited.recipe,created:0}];const before=structuredClone(edited),again=F.withMeasuredDetail(edited);
@@ -114,4 +114,70 @@ test('accepts supported public head silhouettes without folding the three-photo 
   sources.push({...source,id:name,landmarks:fitted.landmarks,regionWeights:F.regionDefaults()});
  }
  const mesh=await F.buildMesh({sources,template,recipe:{...F.defaultRecipe(),hairControls:true,earControls:false},size:1024,quality:'final',revision:0},()=>false);assert(!mesh.controls.diagnostics.some(d=>d.kind==='error'||d.code==='folded-cells'));
+});
+
+
+test('curve spacing is metric-correct and independent of native vertex density',()=>{
+ const path=[[.1,.2],[.2,.2],[.7,.2],[.7,.6]],aspect=2;
+ for(const t of [.25,.5,.75]){const p=F.arcPoint(path,t,aspect),distance=t*1.6;assert(Math.abs((p[0]-.1)*2+(p[1]-.2)-distance)<1e-10);}
+ assert.equal(F.arcPoint([[0,0],[0,0]],.5,1),undefined);
+ const raw=reference.map(p=>({...p}));for(const [id,index]of Object.entries(F.irisVertices))assert.deepEqual(F.eyePoint(id,raw,.8),calibration[index]);
+ for(const contour of F.eyelidContours){assert.equal(contour.ids.length,8);assert.equal(new Set(contour.ids).size,8);}
+});
+
+test('ear fitting requires a visible skin protrusion and preserves manual controls',()=>{
+ const raw=reference.map(p=>({...p}));for(const [i,x,y]of [[33,.3,.3],[263,.7,.3],[234,.24,.4],[454,.76,.4],[1,.5,.5]])raw[i]={x,y};
+ const defs=[['p18',.24,.3],['p28',.24,.4],['p21',.3,.55],['p19',.76,.3],['p29',.76,.4],['p20',.7,.55],['p45',.18,.4],['p44',.2,.5],['p42',.82,.4],['p43',.8,.5]],points=defs.map(([id,x,y])=>({id,x,y,enabled:true,authored:false,locked:false,confidence:.4}));
+ const skin=mask(400,500,(x,y)=>x>.24+Math.max(0,y-.4)*.4&&x<.76-Math.max(0,y-.4)*.4&&y>.2&&y<.65||((x-.205)/.055)**2+((y-.41)/.09)**2<1);
+ const found=F.reviewEarEvidence(points,raw,800,1000,{face:skin});assert(found.find(p=>p.id==='p45').enabled);assert(found.find(p=>p.id==='p45').x<.21);assert(found.find(p=>p.id==='p44').y>.44);assert(!found.find(p=>p.id==='p42').enabled);
+ const manual=points.map(p=>p.id==='p45'?{...p,authored:true}:p),covered=F.reviewEarEvidence(manual,raw,800,1000,{face:mask(400,500,()=>false),hair:mask(400,500,()=>true)});assert.deepEqual(covered.find(p=>p.id==='p45'),manual.find(p=>p.id==='p45'));assert(!covered.find(p=>p.id==='p44').enabled);
+ raw[1].x=.72;assert(!F.reviewEarEvidence(points,raw,800,1000,{face:skin}).find(p=>p.id==='p42').enabled);
+});
+
+test('semantic regions follow warped class masks and invalidate cached fields',()=>{
+ const make=()=>({id:'semantic',name:'Photo',enabled:true,width:800,height:1000,shapeWeight:1,appearanceWeight:1,regionWeights:F.regionDefaults(),landmarks:[],analysisMasks:Object.fromEntries(['face','hair','body','clothing','accessories'].map(k=>[k,mask(32,40,()=>false)]))});
+ const source=make(),q=[[0,0],[.8,0],[.8,1],[0,1]],uv=[[[0,0],[1,0],[1,1],[0,1]]],controls={q,uv,ids:['a','b','c','d'],sources:[source],diagnostics:[]},spec={sources:[source],template,recipe:{...F.defaultRecipe(),earControls:false},size:256,quality:'preview',revision:0};
+ source.analysisMasks.hair=mask(32,40,(x,y)=>x<.3&&y>.65);source.analysisMasks.clothing=mask(32,40,(x,y)=>x>.7&&y<.3);source.analysisMasks.body=mask(32,40,(x,y)=>x>.45&&x<.55&&y>.7&&y<.79);
+ const first=F.regionEvidence(spec,controls);assert.equal(F.regionEvidence(spec,controls),first);const partition=F.regionPartition(spec,controls),hair=partition([.15,.8]),clothing=partition([.85,.15]),neck=partition([.5,.77]);
+ assert(hair[5]>.9);assert(clothing[8]>.9);assert(neck[7]>.5);for(const p of [hair,clothing,neck])assert(Math.abs(p.reduce((a,b)=>a+b,0)-1)<1e-9);
+ source.analysisMasks.hair=mask(32,40,()=>false);const next=F.regionEvidence(spec,controls);assert.notEqual(next,first);assert(next[1].data.every(v=>v===0));
+ const shifted={...controls,uv:[uv[0].map(([x,y])=>[x+.2,y])]};source.analysisMasks.hair=mask(32,40,x=>x>.45&&x<.55);assert(F.sampleMask(F.regionEvidence(spec,shifted)[1],.3,.5)>.95);assert(F.sampleMask(F.regionEvidence(spec,shifted)[1],.5,.5)<.1);
+});
+
+test('region shape controls require matching enabled landmarks',()=>{
+ const source={id:'s',enabled:true,landmarks:[{id:'ear',enabled:true},{id:'neck',enabled:false}]},project={sources:[source],template:{points:[{id:'ear',region:'ears'},{id:'neck',region:'neck'}]},recipe:{earControls:false}};
+ assert(!F.regionHasShapeControls(project,'ears'));assert(!F.regionHasShapeControls(project,'neck'));assert(!F.regionHasShapeControls(project,'clothing'));project.recipe.earControls=true;assert(F.regionHasShapeControls(project,'ears'));
+});
+
+
+test('missing curves, closed eyes and cleared layouts do not invent eye controls',async()=>{
+ const source=JSON.parse(await fs.readFile('public/library/prepared/phenotypes-faces-annamidf.jpg.json','utf8'));source.status='ready';source.id='missing';
+ const p={id:'missing',revision:0,sources:[source],template,recipe:F.defaultRecipe(),variants:[]};
+ delete source.featurePoints['mp-246'];const missing=F.withMeasuredDetail(p);assert(!missing.template.points.some(d=>d.id==='lid-160'));assert(missing.template.points.some(d=>d.id==='lid-385'));
+ const closed=structuredClone(p);for(const n of F.eyePaths.rightLower)closed.sources[0].featurePoints['mp-'+n]=[...closed.sources[0].featurePoints['mp-386']];
+ assert(!F.withMeasuredDetail(closed).template.points.some(d=>d.id==='lid-386'));
+ const cleared={...p,template:{...template,points:[],contours:[]},sources:[{...source,landmarks:[]}]};assert.equal(F.withMeasuredDetail(cleared),cleared);
+});
+
+test('iris edges follow eye size and position but not eyelid-only height',()=>{
+ const ids=['p04','p01','p02','p03','iris-472','iris-477'],points=[[.2,.4],[.35,.4],[.45,.4],[.6,.4],[.28,.42],[.52,.42]],recipe=F.defaultRecipe();
+ assert.deepEqual(F.editFaceShape(ids,points,{...recipe,faceEdits:{eyeHeight:80}}),points);
+ const changed=F.editFaceShape(ids,points,{...recipe,faceEdits:{eyeSize:80,eyeVertical:60}});for(const i of [4,5]){assert.notDeepEqual(changed[i],points[i]);assert(changed[i][1]<points[i][1]);}
+});
+
+test('manual region masks override class masks and incomplete geometry keeps registration',()=>{
+ const source={id:'flat',enabled:true,width:800,height:1000,shapeWeight:1,appearanceWeight:1,regionWeights:F.regionDefaults(),landmarks:[],analysisMasks:Object.fromEntries(['face','hair','body','clothing','accessories'].map(k=>[k,mask(32,40,(x,y)=>k==='hair'&&x<.3&&y>.65)]))},spec={sources:[source],template,recipe:{...F.defaultRecipe(),regionFeather:0},size:256,quality:'preview',revision:0};
+ const empty={q:[],uv:[[]],ids:[],sources:[source],diagnostics:[]},flat={...empty,q:[[.1,.4],[.3,.4],[.5,.4]],uv:[[[.1,.4],[.3,.4],[.5,.4]]],ids:['a','b','c']};
+ assert.deepEqual(F.regionEvidence(spec,flat),F.regionEvidence(spec,empty));
+ const painted={...spec,recipe:{...spec.recipe,regionMasks:{clothing:mask(32,40,()=>true)}}},partition=F.regionPartition(painted,flat);
+ for(const p of [[.15,.8],[.5,.4]]){const weights=partition(p);assert.equal(weights[8],1);assert.equal(weights[5],0);}
+});
+
+
+test('warped class-mask sampling preserves bilinear values and crop boundaries',()=>{
+ let seed=7;const noise=(w,h)=>({width:w,height:h,data:Uint8Array.from({length:w*h},()=>{seed=Math.imul(seed,1664525)+1013904223>>>0;return seed%256;})});
+ const kinds=['face','hair','body','clothing','accessories'],source={id:'parity',width:800,height:1000,shapeWeight:1,analysisMasks:Object.fromEntries(kinds.map(k=>[k,noise(17,21)]))},controls={ids:['a','b','c','d'],q:[[0,0],[.8,0],[.8,1],[0,1]],uv:[[[0,0],[1,0],[1,1],[0,1]]],sources:[source],diagnostics:[]},spec={template,recipe:F.defaultRecipe()};
+ for(const warp of ['triangles','mls']){const masks=F.regionEvidence({...spec,recipe:{...spec.recipe,warp}},controls);for(let y=0;y<240;y+=7)for(let x=0;x<192;x+=7)for(let k=0;k<5;k++){const expected=F.sampleMask(source.analysisMasks[kinds[k]],(x+.5)/192,(y+.5)/240)*255;assert(Math.abs(masks[k].data[y*192+x]-expected)<=.501);}}
+ const outside={...controls,uv:[controls.uv[0].map(([x,y])=>[x+2,y])]};assert(F.regionEvidence(spec,outside).every(m=>m.data.every(v=>v===0)));
+ const before=F.regionEvidenceKey(spec,controls);source.analysisMasks.face.data[0]^=255;assert.notEqual(F.regionEvidenceKey(spec,controls),before);
 });

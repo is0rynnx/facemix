@@ -2,9 +2,11 @@
 import type {AnalysisMasks,Landmark,Mask,PointDefinition,Source,Template,Vec} from '../types';
 import {reviewFaceContour,reviewFeatureEvidence,reviewContourShape,sampleMask} from './contour-evidence';
 import {headMaskFromAnalysis,reviewFrontOpening} from './head-evidence';
+import {eyePoint} from './eye-geometry';
+import {reviewEarEvidence} from './ear-evidence';
 import {reviewVisibleContour} from './visible-contour';
 export interface DetectedPoint {x:number;y:number;}
-export const FIT_VERSION=11;
+export const FIT_VERSION=12;
 export const CALIBRATION_VERSION='reference-478-v1';
 const finite=(p:DetectedPoint|undefined):p is DetectedPoint=>!!p&&Number.isFinite(p.x)&&Number.isFinite(p.y);
 // Recipes are fixed correspondences, in image-side convention. Unsupported
@@ -18,6 +20,7 @@ const contourPairs:Record<string,[number,number]>={p24:[150,149],p25:[379,378]};
 const estimateFrames:Record<string,[number,number]>={p42:[356,454],p43:[454,361],p44:[234,132],p45:[127,234],p58:[172,150],p59:[397,379]};
 const irisGuides:Record<string,[number,number,number]>={p32:[473,-Math.SQRT1_2,Math.SQRT1_2],p33:[473,Math.SQRT1_2,Math.SQRT1_2],p34:[468,-Math.SQRT1_2,Math.SQRT1_2],p35:[468,Math.SQRT1_2,Math.SQRT1_2],p36:[468,0,-1],p37:[473,0,-1]};
 export function semanticPoint(def:PointDefinition,current:DetectedPoint[],reference:DetectedPoint[],aspect=.8):Vec{
+ const eye=eyePoint(def.id,current,aspect);if(eye)return eye;
  const index=def.detectorIndex??semanticVertices[def.id];
  if(index!==undefined&&finite(current[index]))return [current[index].x,current[index].y];
  const pair=browPairs[def.id]??contourPairs[def.id];if(pair&&pair.every(i=>finite(current[i])))return [(current[pair[0]].x+current[pair[1]].x)/2,(current[pair[0]].y+current[pair[1]].y)/2];
@@ -91,7 +94,7 @@ export function fitLandmarks(template:Template,current:DetectedPoint[],reference
   if(def.region==='brows')confidence=.65;
   if(observation&&Math.abs(observation.turn)>.32&&['outline','eyes','brows'].includes(def.region)){confidence=Math.min(confidence,.6);reasons.add('Turned face: check the far eye and outline');}
   if(def.region==='eyes'){
-   const i=def.id==='p31'||['p02','p03','p32','p33','p37'].includes(def.id)||(def.detectorIndex!==undefined&&def.detectorIndex>=362)?473:468,a=current[i+1],b=current[i+3],c=current[i+2],d=current[i+4];
+   const i=def.id==='p31'||['p02','p03','p32','p33','p37'].includes(def.id)||(def.detectorIndex!==undefined&&(def.detectorIndex>=362&&def.detectorIndex<468||def.detectorIndex>=473))?473:468,a=current[i+1],b=current[i+3],c=current[i+2],d=current[i+4];
    if(![a,b,c,d].every(finite)||Math.abs((a.x-b.x)*(c.y-d.y)-(a.y-b.y)*(c.x-d.x))<1e-10){confidence=.3;reasons.add('Iris geometry is weak');}
    const upper=current[i===468?159:386],lower=current[i===468?145:374];if(finite(upper)&&finite(lower)&&Math.hypot((upper.x-lower.x)*width,(upper.y-lower.y)*height)<Math.max(2,width*.002)){confidence=Math.min(confidence,.5);reasons.add('Small or closed eye: check eye controls');}
   }
@@ -104,7 +107,9 @@ export function fitLandmarks(template:Template,current:DetectedPoint[],reference
  const contourBaseline=landmarks.map(p=>{const xy=unadjusted.get(p.id)!;return {...p,x:xy[0],y:xy[1]};});landmarks=reviewContourShape(contourBaseline,landmarks,width,height);
  landmarks=reviewContourShape(contourBaseline,reviewVisibleContour(landmarks,current,width,height,analysisMasks),width,height);
  if(landmarks.some(p=>p.review?.includes('abrupt upper-cheek bend')))reasons.add('Ambiguous upper-cheek boundaries keep detector estimates for review');
- if(landmarks.some(p=>p.autoDisabled))reasons.add('Covered face-boundary controls are excluded until reviewed');
+ landmarks=reviewEarEvidence(landmarks,current,width,height,analysisMasks);
+ if(landmarks.some(p=>p.autoDisabled&&['p42','p43','p44','p45'].includes(p.id)))reasons.add('Covered or unclear ears are excluded until reviewed');
+ if(landmarks.some(p=>p.autoDisabled&&!['p42','p43','p44','p45'].includes(p.id)))reasons.add('Covered face-boundary controls are excluded until reviewed');
  if(headMask){const baseline=landmarks.map(p=>{const xy=unadjusted.get(p.id)!;return {...p,x:xy[0],y:xy[1],enabled:xy[0]>=0&&xy[0]<=1&&xy[1]>=0&&xy[1]<=1,confidence:headIds.includes(p.id)?.4:p.confidence};}),review=reviewHeadBoundaries(baseline,landmarks,width,height);landmarks=review.landmarks;if(review.rejected)reasons.add('Head boundary conflicts with face controls; estimated positions kept');}
  if(landmarks.some(p=>p.x<0||p.x>1||p.y<0||p.y>1))reasons.add('Outside-photo controls are disabled in all-source correspondence');
  return {landmarks,observation,note:reasons.size?[...reasons].join('. ')+'. Left and Right mean image side.':undefined};

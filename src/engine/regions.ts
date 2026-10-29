@@ -2,6 +2,8 @@ import {REGIONS,type RenderSpec,type Vec} from '../types';
 
 import {normalize,regionalInfluence,type Controls} from './math';
 import {BoundedCache} from './cache';
+import {sampleMask} from './contour-evidence';
+import {regionEvidence,regionEvidenceKey} from './region-evidence';
 import {featherFeatureMask} from './mask-feather';
 const fields=new BoundedCache<Float64Array>(2,192*240*9*2);
 
@@ -36,6 +38,7 @@ export function regionPartition(spec:RenderSpec,controls:Controls):(p:Vec)=>numb
  const mouthA=get('p16',[.43,.59]),mouthB=get('p17',[.57,.59]),mouthBottom=get('p40',[.5,.62]),mouthCenter=center(mouthA,mouthB),noseTop=get('p12',[.5,.42]),noseBottom=get('p11',[.5,.54]),noseCenter=center(noseTop,noseBottom);
  const lb=center(get('p08',[.34,.35]),get('p07',[.46,.35])),rb=center(get('p06',[.66,.35]),get('p05',[.54,.35]));
 
+ const evidence=regionEvidence(spec,controls),eyeCenter=center(center(left,li),center(right,ri)),aspect=spec.recipe.aspect,faceHeight=Math.max(.1,Math.hypot((chin[0]-eyeCenter[0])*aspect,chin[1]-eyeCenter[1])),down:Vec=[(chin[0]-eyeCenter[0])*aspect/faceHeight,(chin[1]-eyeCenter[1])/faceHeight];
  const paintedMasks=REGIONS.map(r=>{const mask=spec.recipe.regionMasks?.[r];return mask?featherFeatureMask(mask,spec.recipe.regionFeather??.012):undefined;});
 
  return p=>{
@@ -54,11 +57,20 @@ export function regionPartition(spec:RenderSpec,controls:Controls):(p:Vec)=>numb
 
   const skin=Math.max(0,f-eyes-brows-mouth-nose),below=smooth(chin[1]+.02,chin[1]+.09,p[1]),garment=smooth(chin[1]+.12,chin[1]+.22,p[1]);
 
-  const ears=(1-f)*(1-below)*Math.max(ellipse(p,get('p45',[.25,.48]),.022,.05),ellipse(p,get('p42',[.75,.48]),.022,.05));
+  const sideA=get('p28',get('p18',[.25,.48])),sideB=get('p29',get('p19',[.75,.48])),faceWidth=Math.max(.15,Math.abs(sideB[0]-sideA[0]));
+  const ears=(1-f)*(1-below)*Math.max(ellipse(p,get('p45',[sideA[0]-faceWidth*.06,sideA[1]]),faceWidth*.12,faceHeight*.38),ellipse(p,get('p42',[sideB[0]+faceWidth*.06,sideB[1]]),faceWidth*.12,faceHeight*.38));
 
   const outside=Math.max(0,1-f-ears),hair=outside*(1-below),neck=outside*below*(1-garment),clothing=outside*below*garment;
 
-  const raw=normalize([eyes,brows,nose,mouth,skin,hair,ears,neck,clothing]),painted=paintedMasks.map(mask=>mask?sampleWeight(mask,p[0],p[1])/255:undefined);
+  let outer=[hair,ears,neck,clothing];
+  if(evidence){
+   const [faceSkin,hairClass,body,cloth,accessory]=evidence.map(mask=>sampleMask(mask,...p)),along=(p[0]-chin[0])*aspect*down[0]+(p[1]-chin[1])*down[1],across=Math.abs((p[0]-chin[0])*aspect*down[1]-(p[1]-chin[1])*down[0]);
+   const neckGate=smooth(-feather,feather,along)*(1-smooth(faceHeight*.45,faceHeight*.9,along))*(1-smooth(faceHeight*.4,faceHeight*.85,across));
+   const skinEar=ears*faceSkin,skinNeck=body*neckGate;
+   const classes=normalize([hairClass+accessory*(1-below),skinEar,skinNeck,cloth+body*(1-neckGate)+accessory*below]);
+   if(classes.some(Boolean))outer=classes.map(v=>v*(1-f));
+  }
+  const raw=normalize([eyes,brows,nose,mouth,skin,...outer]),painted=paintedMasks.map(mask=>mask?sampleWeight(mask,p[0],p[1])/255:undefined);
 
   const total=painted.reduce<number>((sum,v)=>sum+(v??0),0),available=raw.reduce((sum,v,i)=>sum+(painted[i]===undefined?v:0),0);
 
@@ -77,7 +89,7 @@ export function regionalWeightMaps(spec:RenderSpec,controls:Controls):WeightMap[
  if(!regional||spec.inspectSourceId)return controls.sources.map((s,i)=>({width:1,height:1,data:new Float32Array([spec.inspectSourceId?(s.id===spec.inspectSourceId?1:0):weights[0][i]])}));
 
  const width=192,height=240,maps=controls.sources.map(()=>({width,height,data:new Float32Array(width*height)}));
- const key=JSON.stringify([controls.ids,controls.q,spec.recipe.aspect,spec.recipe.regionFeather,spec.recipe.regionMasks]);
+ const key=JSON.stringify([regionEvidenceKey(spec,controls),spec.recipe.regionFeather,spec.recipe.regionMasks]);
  let field=fields.get(key);
  if(!field){const partition=regionPartition(spec,controls);field=new Float64Array(width*height*REGIONS.length);for(let i=0;i<width*height;i++)field.set(partition([(i%width+.5)/width,(Math.floor(i/width)+.5)/height]),i*REGIONS.length);fields.set(key,field,field.length);}
  for(let s=0;s<maps.length;s++){const ws=weights.map(row=>row[s]),out=maps[s].data;for(let i=0;i<out.length;i++){let sum=0;for(let r=0;r<REGIONS.length;r++)sum+=field[i*REGIONS.length+r]*ws[r];out[i]=sum;}}

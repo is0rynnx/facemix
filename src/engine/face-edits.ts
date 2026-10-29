@@ -23,7 +23,7 @@ export function editFaceShape(ids:string[],base:Vec[],recipe:Recipe):Vec[]{
  const left=mid(get('p01',[.35,.42]),get('p04',[.3,.42])),right=mid(get('p02',[.45,.42]),get('p03',[.5,.42]));
  const eyeMid=mid(left,right),distance=Math.max(.02,Math.hypot(right[0]-left[0],right[1]-left[1]));
  const nose=get('p12',eyeMid),mouth=mid(get('p16',[.34,.58]),get('p17',[.46,.58])),chin=get('p15',[eyeMid[0],.69]);
- const eyeSets=[new Set(['p01','p04','p30','p34','p35','p36','iris-468','iris-469','iris-471','lid-159','lid-145','lid-160','lid-158','lid-144','lid-153']),new Set(['p02','p03','p31','p32','p33','p37','iris-473','iris-474','iris-476','lid-386','lid-374','lid-385','lid-387','lid-380','lid-373'])];
+ const eyeSets=[new Set(['p01','p04','p30','p34','p35','p36','iris-468','iris-469','iris-471','iris-472','lid-159','lid-145','lid-160','lid-158','lid-144','lid-153']),new Set(['p02','p03','p31','p32','p33','p37','iris-473','iris-474','iris-476','iris-477','lid-386','lid-374','lid-385','lid-387','lid-380','lid-373'])];
  const brows=new Set(['p05','p06','p07','p08','p09','p10','p60']),noseIds=new Set(['p11','p12','p13','p14','p55']),mouthIds=new Set(['p16','p17','p38','p39','p40']);
  const faceIds=new Set(['p15','p18','p19','p20','p21','p22','p23','p24','p25','p26','p27','p28','p29','p46','p56','p57','p58','p59','p61']);
  return base.map(([bx,by],i)=>{

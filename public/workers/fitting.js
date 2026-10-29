@@ -154,6 +154,127 @@ var FaceMixFitting = (() => {
     return { point: seed, supported: false };
   }
 
+  // src/engine/eye-geometry.ts
+  var eyePaths = {
+    leftUpper: [33, 246, 161, 160, 159, 158, 157, 173, 133],
+    leftLower: [33, 7, 163, 144, 145, 153, 154, 155, 133],
+    rightUpper: [362, 398, 384, 385, 386, 387, 388, 466, 263],
+    rightLower: [362, 382, 381, 380, 374, 373, 390, 249, 263]
+  };
+  var samples = {
+    "lid-160": ["leftUpper", 0.25],
+    "lid-159": ["leftUpper", 0.5],
+    "lid-158": ["leftUpper", 0.75],
+    "lid-144": ["leftLower", 0.25],
+    "lid-145": ["leftLower", 0.5],
+    "lid-153": ["leftLower", 0.75],
+    "lid-385": ["rightUpper", 0.25],
+    "lid-386": ["rightUpper", 0.5],
+    "lid-387": ["rightUpper", 0.75],
+    "lid-380": ["rightLower", 0.25],
+    "lid-374": ["rightLower", 0.5],
+    "lid-373": ["rightLower", 0.75]
+  };
+  var irisVertices = { p30: 468, p34: 471, p35: 469, p36: 470, "iris-472": 472, p31: 473, p32: 476, p33: 474, p37: 475, "iris-477": 477 };
+  function arcPoint(path, fraction, aspect) {
+    if (path.length < 2 || !Number.isFinite(aspect) || aspect <= 0 || path.some((p) => !p || p.some((v) => !Number.isFinite(v)))) return;
+    const lengths = [0];
+    for (let i2 = 1; i2 < path.length; i2++) lengths.push(lengths[i2 - 1] + Math.hypot((path[i2][0] - path[i2 - 1][0]) * aspect, path[i2][1] - path[i2 - 1][1]));
+    const total = lengths.at(-1);
+    if (total < 1e-8) return;
+    const distance = Math.max(0, Math.min(1, fraction)) * total;
+    let i = 1;
+    while (i < lengths.length - 1 && lengths[i] < distance) i++;
+    const t = (distance - lengths[i - 1]) / Math.max(1e-12, lengths[i] - lengths[i - 1]);
+    return [path[i - 1][0] + t * (path[i][0] - path[i - 1][0]), path[i - 1][1] + t * (path[i][1] - path[i - 1][1])];
+  }
+  function eyePoint(id, current, aspect) {
+    const sample = samples[id];
+    if (sample) {
+      const path = eyePaths[sample[0]].map((i) => current[i]);
+      if (path.some((p2) => !p2)) return;
+      return arcPoint(path.map((p2) => [p2.x, p2.y]), sample[1], aspect);
+    }
+    const index = irisVertices[id], p = index === void 0 ? void 0 : current[index];
+    return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? [p.x, p.y] : void 0;
+  }
+
+  // src/engine/ear-evidence.ts
+  function reviewEarEvidence(points, current, width, height, masks) {
+    if (!masks?.face || ![33, 263].every((i) => current[i])) return points;
+    const a = current[33], b = current[263], dx = (b.x - a.x) * width, dy = (b.y - a.y) * height, span = Math.hypot(dx, dy);
+    if (span < 8) return points;
+    const ex = [dx / span, dy / span], ey = [-ex[1], ex[0]], origin = [a.x * width, a.y * height];
+    const frame = (p) => {
+      const x = p.x * width - origin[0], y = p.y * height - origin[1];
+      return [(x * ex[0] + y * ex[1]) / span, (x * ey[0] + y * ey[1]) / span];
+    };
+    const photo = (u, v) => [(origin[0] + span * (u * ex[0] + v * ey[0])) / width, (origin[1] + span * (u * ex[1] + v * ey[1])) / height];
+    const byId = new Map(points.map((p) => [p.id, p])), result = /* @__PURE__ */ new Map();
+    for (const [side, ids, outline] of [[-1, ["p45", "p44"], ["p18", "p28", "p21"]], [1, ["p42", "p43"], ["p19", "p29", "p20"]]]) {
+      const controls2 = ids.map((id) => byId.get(id)), edge = outline.map((id) => byId.get(id));
+      if (controls2.every((p) => !p)) continue;
+      const editable = controls2.filter((p) => !!p && !p.authored && !p.locked && (p.enabled || !!p.autoDisabled));
+      if (!editable.length) continue;
+      const reject = () => {
+        for (const p of editable) result.set(p.id, { ...p, enabled: false, autoDisabled: true, confidence: 0.25, review: "Ear boundary is covered or unclear. Place this control manually to use it." });
+      };
+      if (edge.some((p) => !p?.enabled) || farSideContour(outline[0], current, width, height)) {
+        reject();
+        continue;
+      }
+      const curve = edge.map((p) => frame(p)).sort((a2, b2) => a2[1] - b2[1]), top = curve[0][1] - 0.12, bottom = curve.at(-1)[1] + 0.04;
+      if (bottom - top < 0.1 || bottom - top > 1.1) {
+        reject();
+        continue;
+      }
+      const edgeU = (v) => {
+        let i = 1;
+        while (i < curve.length - 1 && curve[i][1] < v) i++;
+        const t = Math.max(0, Math.min(1, (v - curve[i - 1][1]) / Math.max(1e-6, curve[i][1] - curve[i - 1][1])));
+        return curve[i - 1][0] + t * (curve[i][0] - curve[i - 1][0]);
+      };
+      const rows = 48, cols = 32, grid = new Uint8Array(rows * cols), samples2 = [], step = 0.36 / cols;
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        const v = top + (y + 0.5) / rows * (bottom - top), u = edgeU(v) + side * (0.035 + (x + 0.5) * step), p = photo(u, v);
+        samples2.push([u, v]);
+        const skin = sampleMask(masks.face, ...p), cover = Math.max(sampleMask(masks.hair, ...p), sampleMask(masks.clothing, ...p), sampleMask(masks.accessories, ...p), sampleMask(masks.body, ...p));
+        grid[y * cols + x] = skin > 0.6 && cover < 0.3 ? 1 : 0;
+      }
+      let best = [];
+      const seen = new Uint8Array(grid.length);
+      for (let start = 0; start < grid.length; start++) {
+        if (!grid[start] || seen[start]) continue;
+        const component = [start];
+        seen[start] = 1;
+        for (let i = 0; i < component.length; i++) {
+          const at = component[i], x = at % cols, y = Math.floor(at / cols);
+          for (const next of [x > 0 ? at - 1 : -1, x < cols - 1 ? at + 1 : -1, y > 0 ? at - cols : -1, y < rows - 1 ? at + cols : -1]) if (next >= 0 && grid[next] && !seen[next]) {
+            seen[next] = 1;
+            component.push(next);
+          }
+        }
+        if (component.length > best.length) best = component;
+      }
+      const ys = best.map((i) => Math.floor(i / cols)), xs = best.map((i) => i % cols), extent = best.length ? (Math.max(...ys) - Math.min(...ys) + 1) / rows * (bottom - top) : 0;
+      if (best.length < 12 || extent < 0.14 || extent > 0.75 || Math.max(...xs) >= cols - 2 || !best.some((i) => i % cols < 3)) {
+        reject();
+        continue;
+      }
+      const outer = best.reduce((a2, b2) => side * samples2[b2][0] > side * samples2[a2][0] ? b2 : a2), low = best.reduce((a2, b2) => samples2[b2][1] > samples2[a2][1] ? b2 : a2);
+      const proposed = [photo(...samples2[outer]), photo(...samples2[low])];
+      if (proposed.some((p) => p.some((v) => v <= 0 || v >= 1)) || Math.hypot((proposed[0][0] - proposed[1][0]) * width, (proposed[0][1] - proposed[1][1]) * height) < span * 0.06) {
+        reject();
+        continue;
+      }
+      for (let i = 0; i < ids.length; i++) {
+        const p = controls2[i];
+        if (p && editable.includes(p)) result.set(p.id, { ...p, x: proposed[i][0], y: proposed[i][1], enabled: true, autoDisabled: void 0, confidence: 0.6, review: "Skin boundary supports this ear estimate. Check before use." });
+      }
+    }
+    return points.map((p) => result.get(p.id) ?? p);
+  }
+
   // src/engine/quadratic-minima.ts
   function quadraticMinima(cost, scale) {
     const n = cost.length, result = new Uint8Array(n), vertices = new Uint8Array(n), limits = new Float64Array(n + 1);
@@ -258,7 +379,7 @@ var FaceMixFitting = (() => {
   }
 
   // src/engine/fitting.ts
-  var FIT_VERSION = 11;
+  var FIT_VERSION = 12;
   var CALIBRATION_VERSION = "reference-478-v1";
   var finite = (p) => !!p && Number.isFinite(p.x) && Number.isFinite(p.y);
   var semanticVertices = { p01: 133, p02: 362, p03: 263, p04: 33, p11: 2, p12: 6, p13: 327, p14: 98, p15: 152, p16: 61, p17: 291, p18: 127, p19: 356, p20: 361, p21: 132, p22: 172, p23: 397, p26: 54, p27: 284, p28: 234, p29: 454, p30: 468, p31: 473, p38: 37, p39: 267, p40: 17, p46: 200, p55: 1, p61: 58 };
@@ -267,6 +388,8 @@ var FaceMixFitting = (() => {
   var estimateFrames = { p42: [356, 454], p43: [454, 361], p44: [234, 132], p45: [127, 234], p58: [172, 150], p59: [397, 379] };
   var irisGuides = { p32: [473, -Math.SQRT1_2, Math.SQRT1_2], p33: [473, Math.SQRT1_2, Math.SQRT1_2], p34: [468, -Math.SQRT1_2, Math.SQRT1_2], p35: [468, Math.SQRT1_2, Math.SQRT1_2], p36: [468, 0, -1], p37: [473, 0, -1] };
   function semanticPoint(def, current, reference, aspect = 0.8) {
+    const eye = eyePoint(def.id, current, aspect);
+    if (eye) return eye;
     const index = def.detectorIndex ?? semanticVertices[def.id];
     if (index !== void 0 && finite(current[index])) return [current[index].x, current[index].y];
     const pair = browPairs[def.id] ?? contourPairs[def.id];
@@ -390,7 +513,7 @@ var FaceMixFitting = (() => {
         reasons.add("Turned face: check the far eye and outline");
       }
       if (def.region === "eyes") {
-        const i = def.id === "p31" || ["p02", "p03", "p32", "p33", "p37"].includes(def.id) || def.detectorIndex !== void 0 && def.detectorIndex >= 362 ? 473 : 468, a = current[i + 1], b = current[i + 3], c = current[i + 2], d = current[i + 4];
+        const i = def.id === "p31" || ["p02", "p03", "p32", "p33", "p37"].includes(def.id) || def.detectorIndex !== void 0 && (def.detectorIndex >= 362 && def.detectorIndex < 468 || def.detectorIndex >= 473) ? 473 : 468, a = current[i + 1], b = current[i + 3], c = current[i + 2], d = current[i + 4];
         if (![a, b, c, d].every(finite) || Math.abs((a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x)) < 1e-10) {
           confidence = 0.3;
           reasons.add("Iris geometry is weak");
@@ -421,7 +544,9 @@ var FaceMixFitting = (() => {
     landmarks = reviewContourShape(contourBaseline, landmarks, width, height);
     landmarks = reviewContourShape(contourBaseline, reviewVisibleContour(landmarks, current, width, height, analysisMasks), width, height);
     if (landmarks.some((p) => p.review?.includes("abrupt upper-cheek bend"))) reasons.add("Ambiguous upper-cheek boundaries keep detector estimates for review");
-    if (landmarks.some((p) => p.autoDisabled)) reasons.add("Covered face-boundary controls are excluded until reviewed");
+    landmarks = reviewEarEvidence(landmarks, current, width, height, analysisMasks);
+    if (landmarks.some((p) => p.autoDisabled && ["p42", "p43", "p44", "p45"].includes(p.id))) reasons.add("Covered or unclear ears are excluded until reviewed");
+    if (landmarks.some((p) => p.autoDisabled && !["p42", "p43", "p44", "p45"].includes(p.id))) reasons.add("Covered face-boundary controls are excluded until reviewed");
     if (headMask) {
       const baseline = landmarks.map((p) => {
         const xy = unadjusted.get(p.id);

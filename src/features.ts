@@ -25,7 +25,7 @@ export function upgradeLandmarks(project:Project):Project{
 
 export function withFeatureControls(project:Project):Project{
 
- const missing=featureDefinitions.filter(d=>!project.template.points.some(p=>p.id===d.id)&&!(d.detectorIndex===468&&project.template.points.some(p=>p.id==='p30'))&&!(d.detectorIndex===473&&project.template.points.some(p=>p.id==='p31')));if(!missing.length)return project;
+ const missing=featureDefinitions.filter(d=>!project.template.points.some(p=>p.id===d.id||d.detectorIndex!==undefined&&p.detectorIndex===d.detectorIndex)&&!(d.detectorIndex===468&&project.template.points.some(p=>p.id==='p30'))&&!(d.detectorIndex===473&&project.template.points.some(p=>p.id==='p31')));if(!missing.length)return project;
 
  const template:Template={...project.template,version:6,name:project.template.name+' + iris guides',points:[...project.template.points,...missing],contours:project.template.contours};
 

@@ -1,4 +1,4 @@
-import type {PointDefinition,Project,Recipe} from './types';
+import type {PointDefinition,Project,Recipe,Region} from './types';
 
 /** One layout. The old mode field is ignored when reading legacy projects. */
 export function usesControl(def:Pick<PointDefinition,'region'>&Partial<Pick<PointDefinition,'id'>>,recipe:Pick<Recipe,'earControls'|'hairControls'>):boolean{
@@ -22,4 +22,8 @@ export function relevantLandmarkNotes(note:string|undefined,recipe:Recipe):strin
  if(!note)return note;
  const regions=[...(recipe.hairControls===true?['Hair']:[]),...(recipe.earControls!==false?['ears']:[]),'forehead'];
  return note.replace('Hair, ears, forehead and neck need review',`${regions.join(', ')} controls need review`).replace('Orange controls are estimates. ','');
+}
+
+export function regionHasShapeControls(project:Project,region:Region):boolean{
+ const sources=project.sources.filter(s=>s.enabled);return sources.length>0&&project.template.points.some(d=>d.region===region&&usesControl(d,project.recipe)&&sources.every(s=>s.landmarks.some(p=>p.id===d.id&&p.enabled)));
 }

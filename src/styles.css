@@ -155,3 +155,5 @@
  .library-folder:has(.folder-toggle)>.touch-menu-button{grid-column:2;grid-row:1}
  .library-folder:has(.folder-toggle) .editable-name,.library-folder:has(.folder-toggle) .inline-name{grid-column:1/-1;grid-row:2;padding:0}
 }
+
+.help-dialog .dialog-heading h2{margin:0;font-size:18px}.help-topics{display:grid;gap:16px;margin:20px 0}.help-topics dt{font-weight:600;font-size:13px;margin-bottom:4px}.help-topics dd{margin:0;color:var(--muted);font-size:13px;line-height:1.5}.help-shortcuts{margin-top:20px;border-top:1px solid var(--border);padding-top:12px}.help-shortcuts summary{cursor:pointer;font-size:13px}.help-shortcuts .shortcuts-grid{border-top:0}.help-footer{display:flex;align-items:center;justify-content:space-between;margin-top:16px;border-top:1px solid var(--border);padding-top:12px;font-size:12px;color:var(--muted)}.help-footer .help-project{margin:0;width:36px;height:36px;justify-content:center;border-radius:4px}.help-footer .help-project:hover{background:var(--selected)}

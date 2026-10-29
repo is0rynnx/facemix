@@ -171,7 +171,7 @@ export function applyBasis(basis:ArrayLike<number>,points:Vec[]):Vec{let x=0,y=0
 export function signedArea(a:Vec,b:Vec,c:Vec){return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);}
 
 /** Reject line-like point sets before affine extrapolation can magnify noise. */
-function spansPlane(points:Vec[]):boolean{
+export function spansPlane(points:Vec[]):boolean{
  if(points.length<3)return false;
  const triangles=Delaunator.from(points).triangles,extent=Math.max(Math.max(...points.map(p=>p[0]))-Math.min(...points.map(p=>p[0])),Math.max(...points.map(p=>p[1]))-Math.min(...points.map(p=>p[1]))),minimum=Math.max(1e-10,extent*extent*1e-4);
  for(let i=0;i<triangles.length;i+=3)if(Math.abs(signedArea(points[triangles[i]],points[triangles[i+1]],points[triangles[i+2]]))>minimum)return true;
