@@ -25,40 +25,67 @@ export const baseURL=new URL(import.meta.env.BASE_URL,location.href).href;
 const id=()=>crypto.randomUUID();
 
 let inference:Worker|undefined,ready:Promise<void>|undefined,generation=0;
-
-
-
 let initializationReject:((error:Error)=>void)|undefined,initializationTimer:ReturnType<typeof setTimeout>|undefined;
-function failInference(message:string){clearTimeout(initializationTimer);initializationReject?.(new Error(message));initializationReject=undefined;for(const job of detectionJobs.values()){clearTimeout(job.timer);job.reject(new Error(message));}detectionJobs.clear();inference?.terminate();inference=undefined;ready=undefined;}
-
+class InferenceFailure extends Error {}
 const detectionJobs=new Map<string,{resolve:(r:DetectionResult&{found?:boolean})=>void;reject:(e:Error)=>void;timer:ReturnType<typeof setTimeout>}>();
-
-export function startInference(){
-
- if(ready)return ready;inference=new Worker(new URL('workers/inference.worker.js',baseURL));
-
- ready=new Promise<void>((resolve,reject)=>{
-
-  initializationReject=reject;const timer=initializationTimer=setTimeout(()=>failInference('Automatic setup timed out. Manual editing is available.'),90000);
-
-  inference!.onmessage=e=>{const m=e.data;if(m.type==='ready'){clearTimeout(timer);initializationReject=undefined;resolve();}else if(m.type==='detected'){const job=detectionJobs.get(m.job);if(job){clearTimeout(job.timer);detectionJobs.delete(m.job);job.resolve(m);}}else if(m.type==='error'){const job=detectionJobs.get(m.job);if(job){clearTimeout(job.timer);detectionJobs.delete(m.job);job.reject(new Error(m.message));}else{failInference(m.message||'Automatic setup stopped. Try again.');}}};
-
-  inference!.onerror=e=>failInference(e.message||'Automatic setup stopped. Detect landmarks to try again.');
-
-  inference!.postMessage({type:'init',base:baseURL,template:useStudio.getState().project.template,calibration,calibrationVersion:CALIBRATION_VERSION});
-
- });return ready;
-
+function failInference(message:string,retryable=true){
+ const error=retryable?new InferenceFailure(message):new Error(message),worker=inference;
+ inference=undefined;ready=undefined;clearTimeout(initializationTimer);initializationTimer=undefined;
+ initializationReject?.(error);initializationReject=undefined;
+ for(const job of detectionJobs.values()){clearTimeout(job.timer);job.reject(error);}detectionJobs.clear();worker?.terminate();
 }
 
-export async function detect(blob:Blob):Promise<DetectionResult&{found?:boolean}>{await startInference();const job=id();return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{detectionJobs.delete(job);reject(new Error('Image preparation timed out. Manual editing is available.'));},90000);detectionJobs.set(job,{resolve,reject,timer});inference!.postMessage({type:'template',template:useStudio.getState().project.template});inference!.postMessage({type:'detect',job,blob});});}
+export function startInference():Promise<void>{
+ if(ready)return ready;
+ let resolve!:()=>void;
+ const promise=ready=new Promise<void>((ok,reject)=>{resolve=ok;initializationReject=reject;});
+ try{
+  const worker=new Worker(new URL('workers/inference.worker.js?v=1.6.1',baseURL));inference=worker;
+  initializationTimer=setTimeout(()=>{if(inference===worker)failInference('Automatic setup timed out. Check the connection and try Detect again.');},60000);
+  worker.onmessage=e=>{
+   if(inference!==worker)return;const m=e.data;
+   if(m.type==='ready'){clearTimeout(initializationTimer);initializationTimer=undefined;initializationReject=undefined;resolve();}
+   else if(m.type==='detected'||m.type==='error'){
+    const job=detectionJobs.get(m.job);
+    if(job){clearTimeout(job.timer);detectionJobs.delete(m.job);if(m.type==='detected')job.resolve(m);else job.reject(new Error(m.message));}
+    else if(m.type==='error'&&!m.job)failInference(m.message||'Automatic setup stopped. Try Detect again.');
+   }
+  };
+  worker.onerror=e=>{e.preventDefault?.();if(inference===worker)failInference(e.message||'The detector stopped. Try Detect again.');};
+  worker.onmessageerror=()=>{if(inference===worker)failInference('The detector response could not be read.');};
+  worker.postMessage({type:'init',base:baseURL,template:useStudio.getState().project.template,calibration,calibrationVersion:CALIBRATION_VERSION});
+ }catch(error){failInference(String(error));}
+ return promise;
+}
 
-export function cancelPreparation(){generation++;cancelFaceChoices();clearTimeout(initializationTimer);initializationReject?.(new Error('Preparation cancelled.'));initializationReject=undefined;inference?.terminate();inference=undefined;ready=undefined;for(const job of detectionJobs.values()){clearTimeout(job.timer);job.reject(new Error('Preparation cancelled.'));}detectionJobs.clear();useStudio.getState().change(p=>({...p,sources:p.sources.map(s=>s.status==='preparing'?{...s,status:'manual',note:'Preparation cancelled. Landmarks remain editable.'}:s)}),false);useStudio.getState().setStatus('Preparation cancelled');}
+async function detectOnce(blob:Blob,mine:number):Promise<DetectionResult&{found?:boolean}>{
+ await startInference();if(mine!==generation)throw new Error('Preparation cancelled.');
+ const job=id(),worker=inference!;
+ return new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>{if(inference===worker)failInference('Image preparation timed out. Try Detect again or place the landmarks manually.');},45000);
+  detectionJobs.set(job,{resolve,reject,timer});
+  try{worker.postMessage({type:'template',template:useStudio.getState().project.template});worker.postMessage({type:'detect',job,blob});}
+  catch(error){failInference(String(error));}
+ });
+}
+let detectionQueue:Promise<unknown>=Promise.resolve();
+export function detect(blob:Blob):Promise<DetectionResult&{found?:boolean}>{
+ const mine=generation;
+ const pending=detectionQueue.then(async()=>{
+  for(let attempt=0;;attempt++){
+   if(mine!==generation)throw new Error('Preparation cancelled.');
+   try{return await detectOnce(blob,mine);}catch(error){if(attempt||mine!==generation||!(error instanceof InferenceFailure))throw error;}
+  }
+ });
+ detectionQueue=pending.catch(()=>{});return pending;
+}
+
+export function cancelPreparation(){generation++;cancelFaceChoices();failInference('Preparation cancelled.',false);useStudio.getState().change(p=>({...p,sources:p.sources.map(s=>s.status==='preparing'?{...s,status:'manual',note:'Preparation cancelled. Landmarks remain editable.'}:s)}),false);useStudio.getState().setStatus('Preparation cancelled');}
 
 /** Cached masks make subsequent selections independent of model inference. */
 export async function excludeAutomatic(sourceId:string,kind:'hair'|'accessories'){
  const mine=generation,state=useStudio.getState();let source=state.project.sources.find(s=>s.id===sourceId);const asset=assets.get(sourceId);if(!source||!asset)return;
- state.setStatus('Preparing selection…',true);
+ state.setStatus('Preparing selection...',true);
  try{
   if(!source.analysisMasks?.[kind]){const result=await detect(asset.blob);if(mine!==generation)return;const current=useStudio.getState().project.sources.find(s=>s.id===sourceId);if(!current)return;useStudio.getState().updateSource(sourceId,{analysisMasks:result.analysisMasks??current.analysisMasks},false);}
   source=useStudio.getState().project.sources.find(s=>s.id===sourceId);const selection=source?.analysisMasks?.[kind];
@@ -89,6 +116,7 @@ export async function analyzeSource(sourceId:string,maskOnly=false){
 async function selectFace(source:Source,result:DetectionResult&{found?:boolean}):Promise<{result:DetectionResult&{found?:boolean};sourceId:string}>{
  const unchanged=(result:DetectionResult&{found?:boolean})=>({result,sourceId:source.id});
  if(!result.faces||result.faces.length<2)return unchanged(result);
+ useStudio.getState().setStatus('Choose a face',true);
  const choice=await chooseFace(source.name,assets.get(source.id)!.url,result.faces);
  if(!choice)return unchanged({...result,landmarks:source.landmarks,faces:undefined,found:false,note:'Automatic placement skipped. Place points manually.'});
  const selected={...result,...result.faces[choice.index],faces:undefined};
@@ -157,7 +185,7 @@ async function importPhotosNow(files:File[]){
 
  const mine=generation,state=useStudio.getState(),room=30-state.project.sources.length;if(room<=0){state.notify('This project already has 30 sources.');return;}
 
- state.setStatus('Importing photos…',true);const added:Source[]=[];const failures:string[]=[];
+ state.setStatus('Importing photos...',true);const added:Source[]=[];const failures:string[]=[];
 
  for(const file of files.slice(0,room)){if(mine!==generation)break;try{added.push(await sourceFromBlob(file,file.name.replace(/\.[^.]+$/,'')));}catch{failures.push(file.name);}}
 
@@ -170,7 +198,7 @@ async function importPhotosNow(files:File[]){
 function appendSources(added:Source[]):Source[]{if(!added.length)return [];const requested=added.length;const state=useStudio.getState();state.change(p=>{added=added.slice(0,Math.max(0,30-p.sources.length));let sources=[...p.sources,...added];for(const key of ['shapeWeight','appearanceWeight'] as const){const locked=p.sources.filter(s=>s.enabled&&s.weightLocked).reduce((sum,s)=>sum+s[key],0),unlocked=p.sources.filter(s=>s.enabled&&!s.weightLocked),remaining=Math.max(0,100-locked),oldTotal=unlocked.reduce((sum,s)=>sum+s[key],0),perNew=remaining/Math.max(1,unlocked.length+added.length),newIds=new Set(added.map(s=>s.id));sources=sources.map(s=>newIds.has(s.id)?{...s,[key]:perNew}:s.enabled&&!s.weightLocked?{...s,[key]:oldTotal>0?s[key]/oldTotal*(remaining-perNew*added.length):(remaining-perNew*added.length)/Math.max(1,unlocked.length)}:s);}return withMeasuredDetail(reviewAutoGuides(withShapeControls({...p,sources})));});if(added[0])state.selectSource(added[0].id);if(added.length<requested)state.notify(`Added ${added.length}. The mix supports 30 sources.`);return added;}
 
 export function importLibraryEntries(entries:LibraryEntry[]){return queueImport(()=>importLibraryEntriesNow(entries));}
-async function importLibraryEntriesNow(entries:LibraryEntry[]){const mine=generation,room=30-useStudio.getState().project.sources.length,added:Source[]=[];useStudio.getState().setStatus('Adding library photos…',true);try{for(const entry of entries.slice(0,Math.max(0,room))){if(mine!==generation)break;const blob=await libraryBlob(entry),source=await sourceFromBlob(blob,entry.name),prepared=await libraryPreparation(entry);if(prepared?.landmarks.length){const snapshot=structuredClone(prepared),points=new Map(snapshot.landmarks.map(p=>[p.id,p]));Object.assign(source,snapshot,{id:source.id,name:entry.name,enabled:true,weightLocked:false,shapeWeight:1,appearanceWeight:1,regionWeights:regionDefaults(),landmarks:[...source.landmarks.map(p=>points.get(p.id)??p),...snapshot.landmarks.filter(p=>measuredDetailDefinitions.some(d=>d.id===p.id)&&!source.landmarks.some(d=>d.id===p.id))]});}if(entry.mask&&!source.subjectMask){const response=await fetch(new URL(entry.mask,baseURL));if(response.ok){const bm=await createImageBitmap(await response.blob()),c=new OffscreenCanvas(bm.width,bm.height),ctx=c.getContext('2d')!;ctx.drawImage(bm,0,0);bm.close();const rgba=ctx.getImageData(0,0,c.width,c.height).data;source.subjectMask={width:c.width,height:c.height,data:Uint8Array.from({length:c.width*c.height},(_,i)=>rgba[i*4])};}}source.provenance=entry.provenance;const activeTemplate=useStudio.getState().project.template;added.push(activeTemplate.id==='face-controls'?fitUnreviewed(source,activeTemplate):source);}if(mine!==generation)return;const accepted=appendSources(added);if(entries.length>room)useStudio.getState().notify(`Added ${added.length}; the mix supports up to 30 sources.`);await prepare(accepted.filter(s=>s.status==='preparing'));await useLibrary.getState().markUsed(entries.slice(0,accepted.length).map(e=>e.id));}finally{useStudio.getState().setStatus('Ready');}}
+async function importLibraryEntriesNow(entries:LibraryEntry[]){const mine=generation,room=30-useStudio.getState().project.sources.length,added:Source[]=[];useStudio.getState().setStatus('Adding library photos...',true);try{for(const entry of entries.slice(0,Math.max(0,room))){if(mine!==generation)break;const blob=await libraryBlob(entry),source=await sourceFromBlob(blob,entry.name),prepared=await libraryPreparation(entry);if(prepared?.landmarks.length){const snapshot=structuredClone(prepared),points=new Map(snapshot.landmarks.map(p=>[p.id,p]));Object.assign(source,snapshot,{id:source.id,name:entry.name,enabled:true,weightLocked:false,shapeWeight:1,appearanceWeight:1,regionWeights:regionDefaults(),landmarks:[...source.landmarks.map(p=>points.get(p.id)??p),...snapshot.landmarks.filter(p=>measuredDetailDefinitions.some(d=>d.id===p.id)&&!source.landmarks.some(d=>d.id===p.id))]});}if(entry.mask&&!source.subjectMask){const response=await fetch(new URL(entry.mask,baseURL));if(response.ok){const bm=await createImageBitmap(await response.blob()),c=new OffscreenCanvas(bm.width,bm.height),ctx=c.getContext('2d')!;ctx.drawImage(bm,0,0);bm.close();const rgba=ctx.getImageData(0,0,c.width,c.height).data;source.subjectMask={width:c.width,height:c.height,data:Uint8Array.from({length:c.width*c.height},(_,i)=>rgba[i*4])};}}source.provenance=entry.provenance;const activeTemplate=useStudio.getState().project.template;added.push(activeTemplate.id==='face-controls'?fitUnreviewed(source,activeTemplate):source);}if(mine!==generation)return;const accepted=appendSources(added);if(entries.length>room)useStudio.getState().notify(`Added ${added.length}; the mix supports up to 30 sources.`);await prepare(accepted.filter(s=>s.status==='preparing'));await useLibrary.getState().markUsed(entries.slice(0,accepted.length).map(e=>e.id));}finally{useStudio.getState().setStatus('Ready');}}
 
 function currentFaceNose(source:Source):[number,number]{const nose=source.featurePoints?.['mp-1'];if(nose)return nose;const p=source.landmarks.find(p=>p.id==='p55');return p?[p.x,p.y]:[.5,.5];}
 
@@ -178,7 +206,7 @@ export async function flipSource(sourceId:string){
 
  const state=useStudio.getState(),source=state.project.sources.find(s=>s.id===sourceId),asset=assets.get(sourceId);if(!source||!asset||state.busy)return;
 
- state.setStatus('Flipping photo…',true);const mine=generation;
+ state.setStatus('Flipping photo...',true);const mine=generation;
 
  try{
 
@@ -212,7 +240,7 @@ async function prepare(sources:Source[],maskOnly=false){const mine=generation;fo
 
 export async function loadDemo(group:'reference',replace=false){
 
- const state=useStudio.getState();state.setStatus('Opening sample photos…',true);
+ const state=useStudio.getState();state.setStatus('Opening sample photos...',true);
 
  try{const fixture=await (await fetch(baseURL+'demo/fixture.json')).json();const entries=fixture.sources;const room=replace?30:30-state.project.sources.length;const sources:Source[]=[];if(replace)state.change(p=>({...p,sources:[],recipe:{...p.recipe,pins:{}},template:fixture.template}));
 

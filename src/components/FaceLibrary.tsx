@@ -28,7 +28,7 @@ export function FaceLibrary({onClose}:{onClose:()=>void}){
  const toggleAll=()=>{setNote('');setSelected(allSelected?[]:[...new Set([...selected,...entries.map(e=>e.id)])]);};
  const select=(entry:LibraryEntry,keys:SelectionModifiers={})=>{setNote('');setSelection(v=>selectLibrary(v,entries.map(e=>e.id),entry.id,keys));};
  const beginImport=(folder=collection)=>{importDestination.current=folder;input.current?.click();};
- const addToMix=async(ids=selected)=>{const chosen=entries.filter(e=>ids.includes(e.id));if(!chosen.length)return;setBusy(true);try{await importLibraryEntries(chosen);onClose();}catch(error){setNote(String(error));}finally{setBusy(false);}};
+ const addToMix=async(ids=selected)=>{const chosen=entries.filter(e=>ids.includes(e.id));if(!chosen.length||busy)return;setBusy(true);onClose();try{await importLibraryEntries(chosen);}catch(error){useStudio.getState().notify(String(error));}};
  const create=async()=>{if(!loaded)return;const id=crypto.randomUUID();await change(d=>({...d,collections:[...d.collections,{id,name:'New folder'}]}));setCollection(id);setEditing('folder:'+id);};
  const canPaste=(folder:string)=>folder!=='all'&&data.collections.some(c=>c.id===folder)&&!!clipboard?.ids.some(id=>data.entries.some(e=>e.id===id));
  const pasteIn=async(folder:string)=>{if(!canPaste(folder)){setNote('Open a folder to paste.');return;}const ids=new Set(clipboard!.ids);await paste(folder);const pasted=sortLibrary(useLibrary.getState().data.entries.filter(e=>e.collections.includes(folder)&&e.name.toLowerCase().includes(search.toLowerCase())&&ids.has(e.id)),sort).map(e=>e.id);setCollection(folder,selectAllLibrary(pasted));};

@@ -154,3 +154,7 @@
  .library-folder:has(.folder-toggle)>.touch-menu-button{grid-column:2;grid-row:1}
  .library-folder:has(.folder-toggle) .editable-name,.library-folder:has(.folder-toggle) .inline-name{grid-column:1/-1;grid-row:2;padding:0}
 }
+
+.face-picker-backdrop{z-index:1100}
+
+.help-changelog{margin:20px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:12px 0}.help-changelog summary{cursor:pointer}.help-changelog summary span{float:right;color:var(--muted)}.help-changelog>ol{list-style:none;padding:0;margin:16px 0 0}.help-changelog>ol>li{margin:0 0 18px}.help-changelog li>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}.help-changelog time{color:var(--muted);font-size:12px}.help-changelog ul{padding-left:20px;margin:8px 0;line-height:1.5}.help-changelog ul li{margin:4px 0}
