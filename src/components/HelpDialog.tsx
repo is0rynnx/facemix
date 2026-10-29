@@ -1,3 +1,4 @@
+import {Changelog} from './Changelog';
 import {useEffect,useRef} from 'react';
 import {Github,X} from 'lucide-react';
 
@@ -20,6 +21,7 @@ export function HelpDialog({onClose}:{onClose:()=>void}){
   <details className="help-shortcuts"><summary>Keyboard and touch controls</summary><div className="shortcuts-grid">{[
    ['Ctrl / Cmd + V','Paste a photo'],['V','Move points'],['A','Add a matching point'],['B','Open masks'],['Arrow keys','Move selected points'],['Shift + arrows','Move 10 pixels'],['Ctrl / Cmd + Z','Undo'],['Ctrl / Cmd + Shift + Z','Redo'],['Ctrl / Cmd + S','Save project file'],['Pinch / scroll','Zoom view'],['Shift + scroll / middle drag','Pan view'],['0','Fit views'],['? / F1','Help']
   ].map(([key,value])=><div key={key}><kbd>{key}</kbd><span>{value}</span></div>)}</div></details>
+  <Changelog/>
   <footer className="help-footer"><span>By is0rynnx</span><a className="help-project" href="https://github.com/is0rynnx/facemix" target="_blank" rel="noopener noreferrer" aria-label="FaceMix on GitHub" title="FaceMix on GitHub"><Github size={20}/></a></footer>
  </div></div>;
 }

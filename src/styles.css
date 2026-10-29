@@ -156,3 +156,6 @@
 }
 
 .help-dialog .dialog-heading h2{margin:0;font-size:18px}.help-topics{display:grid;gap:16px;margin:20px 0}.help-topics dt{font-weight:600;font-size:13px;margin-bottom:4px}.help-topics dd{margin:0;color:var(--muted);font-size:13px;line-height:1.5}.help-shortcuts{margin-top:20px;border-top:1px solid var(--border);padding-top:12px}.help-shortcuts summary{cursor:pointer;font-size:13px}.help-shortcuts .shortcuts-grid{border-top:0}.help-footer{display:flex;align-items:center;justify-content:space-between;margin-top:16px;border-top:1px solid var(--border);padding-top:12px;font-size:12px;color:var(--muted)}.help-footer .help-project{margin:0;width:36px;height:36px;justify-content:center;border-radius:4px}.help-footer .help-project:hover{background:var(--selected)}
+.face-picker-backdrop{z-index:1100}
+
+.help-changelog{margin:20px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:12px 0}.help-changelog summary{cursor:pointer}.help-changelog summary span{float:right;color:var(--muted)}.help-changelog>ol{list-style:none;padding:0;margin:16px 0 0}.help-changelog>ol>li{margin:0 0 18px}.help-changelog li>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}.help-changelog time{color:var(--muted);font-size:12px}.help-changelog ul{padding-left:20px;margin:8px 0;line-height:1.5}.help-changelog ul li{margin:4px 0}

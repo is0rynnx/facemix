@@ -1,13 +1,13 @@
 {
   "name": "facemix",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build && node scripts/audit-public.mjs",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test tests/*.test.mjs && vitest run tests/touch-controls.test.tsx tests/renderer-recovery.test.ts tests/render-worker.test.ts",
+    "test": "node --test tests/*.test.mjs && vitest run tests/touch-controls.test.tsx tests/renderer-recovery.test.ts tests/render-worker.test.ts tests/inference-recovery.test.ts tests/library-face-flow.test.tsx",
     "models": "node scripts/prepare-models.mjs",
     "start": "node scripts/serve-browser.mjs"
   },
