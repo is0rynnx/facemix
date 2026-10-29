@@ -88,6 +88,8 @@ export class GPUCompositor{
 
  }
 
+ dispose(){for(const asset of this.previews.keys())this.releaseAsset(asset);for(const program of [this.warp,this.accumulate,this.final])this.gl.deleteProgram(program);this.gl.getExtension('WEBGL_lose_context')?.loseContext();}
+
  program(v:string,f:string){const g=this.gl;const shader=(type:number,source:string)=>{const s=g.createShader(type)!;g.shaderSource(s,source);g.compileShader(s);if(!g.getShaderParameter(s,g.COMPILE_STATUS))throw new Error(g.getShaderInfoLog(s)??'Shader compilation failed');return s;};const p=g.createProgram()!,vs=shader(g.VERTEX_SHADER,v),fs=shader(g.FRAGMENT_SHADER,f);g.attachShader(p,vs);g.attachShader(p,fs);g.linkProgram(p);g.deleteShader(vs);g.deleteShader(fs);if(!g.getProgramParameter(p,g.LINK_STATUS))throw new Error(g.getProgramInfoLog(p)??'GPU link failed');return p;}
 
  uniform(p:WebGLProgram,name:string){return this.gl.getUniformLocation(p,name);}
@@ -188,6 +190,7 @@ export class GPUCompositor{
 
    g.uniform1i(this.uniform(this.final,'u_bgMode'),spec.recipe.background==='solid'?1:spec.recipe.background==='source'?2:0);const hex=spec.recipe.backgroundColor;g.uniform3f(this.uniform(this.final,'u_bg'),parseInt(hex.slice(1,3),16)/255,parseInt(hex.slice(3,5),16)/255,parseInt(hex.slice(5,7),16)/255);g.uniform1i(this.uniform(this.final,'u_linear'),spec.recipe.blend==='linear'?1:0);g.drawArrays(g.TRIANGLES,0,3);
 
+   if(g.isContextLost())throw new Error('GPU context lost');
    const error=g.getError();if(error!==g.NO_ERROR)throw new Error(`GPU render error ${error}`);
 
    if(spec.quality==='final'&&!tile)return {blob:await this.canvas.convertToBlob({type:'image/png'}),width:w,height:h,backend:'WebGL2 / float32'};

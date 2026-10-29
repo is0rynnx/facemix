@@ -121,3 +121,12 @@ it('cancels a polygon by tap without changing the mask and applies a completed o
  fireEvent.click(screen.getByRole('button',{name:'Remove polygon area'}));expect(update).toHaveBeenCalledOnce();expect(update.mock.calls[0][0].data[20*40+20]).toBe(0);
  fireEvent.pointerDown(canvas,{button:0,clientX:100,clientY:100});view.rerender(<SourceCanvas source={source} zoom={1} tool="background" brush={.1} showMask showLabels={false} showLines={false}/>);expect(screen.queryByRole('button',{name:'Cancel polygon'})).toBeNull();
 });
+it('does not offer automatic recovery snapshots in the project menu',async()=>{
+ await open();
+ const project=useStudio.getState().project;
+ act(()=>useStudio.setState({project:{...project,variants:[{id:'old-recovery',kind:'recovery',name:'Control layout backup',created:1,sources:project.sources,recipe:project.recipe}]}}));
+ fireEvent.click(screen.getByRole('button',{name:project.name,exact:true}));
+ expect(screen.queryByText(/Recovery snapshots/)).toBeNull();
+ expect(screen.queryByText('Control layout backup')).toBeNull();
+ expect(useStudio.getState().project.variants[0].id).toBe('old-recovery');
+});

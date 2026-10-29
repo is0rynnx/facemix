@@ -9,13 +9,14 @@ import { renderCPU } from '../engine/cpu-renderer';
 import type { RenderSpec } from '../types';
 import {BoundedCache} from '../engine/cache';
 
-const assets=new Map<string,ImageAsset>();let gpu:GPUCompositor|undefined;let pending:{job:number;spec:RenderSpec}|undefined;let running=false,epoch=0;
+const assets=new Map<string,ImageAsset>();let gpu:GPUCompositor|undefined;let forceCPU=false,gpuFailed=false;let pending:{job:number;spec:RenderSpec}|undefined;let running=false,epoch=0;
 
 const meshes=new BoundedCache<Awaited<ReturnType<typeof buildMesh>>>(4,300000);
 
 self.onmessage=e=>{
 
  const data=e.data;
+ if(data.type==='configure'){forceCPU=data.forceCPU===true;return;}
 
  if(data.type==='asset'){const previous=assets.get(data.id);if(previous)gpu?.releaseAsset(previous);previous?.bitmap?.close();previous?.original?.close();assets.set(data.id,{blob:data.blob});return;}
 
@@ -53,7 +54,8 @@ async function process(){
 
    let result;
 
-   try{gpu??=new GPUCompositor();result=await gpu.render(spec,mesh,assets,cancelled);}catch(error){if(cancelled())continue;gpu=undefined;mesh.controls.diagnostics.push({kind:'warning',message:`GPU fallback: ${String(error)}`});result=await renderCPU(spec,mesh,assets,cancelled);}
+   if(forceCPU||gpuFailed)result=await renderCPU(spec,mesh,assets,cancelled);
+   else try{gpu??=new GPUCompositor();result=await gpu.render(spec,mesh,assets,cancelled);}catch(error){if(cancelled())continue;gpuFailed=true;gpu?.dispose();gpu=undefined;mesh.controls.diagnostics.push({kind:'warning',message:`GPU fallback: ${String(error)}`});result=await renderCPU(spec,mesh,assets,cancelled);}
 
    if(cancelled()){result.bitmap?.close();continue;}
 
@@ -68,3 +70,5 @@ async function process(){
  running=false;
 
 }
+
+self.postMessage({type:'ready'});

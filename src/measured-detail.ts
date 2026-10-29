@@ -1,4 +1,3 @@
-import {recoverySnapshot} from './variants';
 import calibration from './detector-calibration.json';
 import type {Landmark,PointDefinition,Project,Source,Vec} from './types';
 import {sampleMask} from './engine/contour-evidence';
@@ -50,6 +49,5 @@ export function withMeasuredDetail(project:Project):Project{
  for(const [name,ids,closed]of [['Left eyelid',['p04','lid-160','lid-159','lid-158','p01','lid-145'],true],['Right eyelid',['p02','lid-385','lid-386','lid-387','p03','lid-374'],true],['Lip seam',['p16','lip-13','p17'],false]] as const)if(ids.every(id=>available.has(id)))contours.push({name,ids:[...ids],closed});
  const mouth=['p16','p38','lip-0','p39','p17','lip-314','p40','lip-84'].filter(id=>available.has(id));if(missing.some(d=>d.region==='mouth')){const i=contours.findIndex(c=>c.name==='Mouth');if(i>=0)contours[i]={name:'Mouth',ids:mouth,closed:true};}
  if(!missing.length&&project.template.version>=13&&JSON.stringify(contours)===JSON.stringify(project.template.contours)&&sources.every((s,i)=>JSON.stringify(s.landmarks)===JSON.stringify(project.sources[i].landmarks)))return project;
- const before=missing.length&&project.template.version<13?recoverySnapshot(project,'detail-13'):undefined;
- return {...project,template:{...project.template,version:Math.max(13,project.template.version),points:definitions,contours},sources,variants:before?[...project.variants,before]:project.variants};
+ return {...project,template:{...project.template,version:Math.max(13,project.template.version),points:definitions,contours},sources};
 }

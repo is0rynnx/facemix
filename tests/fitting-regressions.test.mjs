@@ -93,11 +93,11 @@ test('cached fitting uses the stored silhouette and preserves authored, locked a
  const mesh=await F.buildMesh({...p,size:1024,quality:'final'},()=>false);assert(!mesh.controls.diagnostics.some(d=>d.kind==='error'||d.code==='folded-cells'));
 });
 
-test('saved current projects receive the correction once, with a recovery copy',async()=>{
+test('saved current projects receive the correction once without creating snapshots',async()=>{
  const catalog=JSON.parse(await fs.readFile('public/library/catalog.json','utf8')),entry=catalog.entries.find(e=>e.id==='phenotypes-faces-annamidf.jpg'),source=JSON.parse(await fs.readFile('public/'+entry.preparation,'utf8'));
  source.fitVersion=8;source.landmarks[0].authored=true;source.landmarks[1].locked=true;
  const project={schemaVersion:1,id:'cached',revision:0,name:'Cached',template,recipe:{...F.defaultRecipe(),pins:{p28:[.2,.5]}},sources:[source],variants:[]},before=structuredClone(project),updated=F.refreshAutomaticFit(project);
- assert.equal(updated.sources[0].fitVersion,F.FIT_VERSION);assert.equal(updated.variants.length,1);assert.equal(updated.variants[0].kind,'recovery');assert.deepEqual(updated.variants[0].sources,before.sources);assert.deepEqual(project,before);
+ assert.equal(updated.sources[0].fitVersion,F.FIT_VERSION);assert.equal(updated.variants,project.variants);assert.deepEqual(project,before);
  for(const id of ['p01','p02','p28'])assert.deepEqual(updated.sources[0].landmarks.find(p=>p.id===id),source.landmarks.find(p=>p.id===id));
  assert.equal(F.refreshAutomaticFit(updated),updated);
  const custom={...project,template:{...template,id:'custom'}};assert.equal(F.refreshAutomaticFit(custom),custom);
