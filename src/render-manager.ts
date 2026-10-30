@@ -4,7 +4,7 @@ import type {RenderOutput,RenderSpec} from './types';
 type Request={job:number;spec:RenderSpec};
 type WorkerFactory=(retry:boolean)=>Worker;
 const createWorker:WorkerFactory=retry=>{
- const url=new URL('workers/render.worker.js',new URL(import.meta.env.BASE_URL,location.href));
+ const url=new URL('workers/render.worker.js?v=1.7.0',new URL(import.meta.env.BASE_URL,location.href));
  if(retry)url.searchParams.set('retry',String(Date.now()));
  return new Worker(url);
 };

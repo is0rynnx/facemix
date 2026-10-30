@@ -40,7 +40,7 @@ export function startInference():Promise<void>{
  let resolve!:()=>void;
  const promise=ready=new Promise<void>((ok,reject)=>{resolve=ok;initializationReject=reject;});
  try{
-  const worker=new Worker(new URL('workers/inference.worker.js?v=1.6.1',baseURL));inference=worker;
+  const worker=new Worker(new URL('workers/inference.worker.js?v=1.7.0',baseURL));inference=worker;
   initializationTimer=setTimeout(()=>{if(inference===worker)failInference('Automatic setup timed out. Check the connection and try Detect again.');},60000);
   worker.onmessage=e=>{
    if(inference!==worker)return;const m=e.data;

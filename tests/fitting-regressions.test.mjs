@@ -62,6 +62,20 @@ test('eyelid flanks sample observed curves and preserve edits, pins and saved va
  for(const id of ids)assert.deepEqual(again.sources[0].landmarks.find(p=>p.id===id),before.sources[0].landmarks.find(p=>p.id===id));assert.deepEqual(again.variants,before.variants);
 });
 
+test('upgrades an older eye layout when another source cannot support new controls',async()=>{
+ const source=JSON.parse(await fs.readFile('public/library/prepared/phenotypes-faces-annamidf.jpg.json','utf8'));source.status='ready';source.id='clear';
+ const full=F.withMeasuredDetail({id:'older',revision:0,sources:[source],template,recipe:F.defaultRecipe(),variants:[]}),added=new Set(['lid-144','lid-153','lid-380','lid-373','iris-472','iris-477']);
+ const older={...full,template:{...full.template,version:13,points:full.template.points.filter(p=>!added.has(p.id)),contours:full.template.contours.map(c=>({...c,ids:c.ids.filter(id=>!added.has(id))}))},sources:full.sources.map(s=>({...s,landmarks:s.landmarks.filter(p=>!added.has(p.id))}))};
+ older.sources.push({...structuredClone(older.sources[0]),id:'small',width:1,height:1});
+ older.sources[0].landmarks.find(p=>p.id==='lid-158').authored=true;older.recipe.pins['lid-387']=[.6,.4];older.variants=[{id:'saved',sources:structuredClone(older.sources),recipe:structuredClone(older.recipe)}];const before=structuredClone(older);
+ const updated=F.withMeasuredDetail(older);
+ assert.deepEqual(older,before);assert.deepEqual(updated.variants,before.variants);assert.deepEqual(updated.recipe.pins,before.recipe.pins);
+ assert(!updated.template.points.some(p=>added.has(p.id)));assert(updated.sources[0].landmarks.find(p=>p.id==='lid-159').enabled);
+ assert.equal(updated.sources[1].landmarks.find(p=>p.id==='lid-159').enabled,false);
+ assert.deepEqual(updated.sources[0].landmarks.find(p=>p.id==='lid-158'),before.sources[0].landmarks.find(p=>p.id==='lid-158'));
+ assert.equal(F.withMeasuredDetail(updated),updated);
+});
+
 test('selection feather is smooth, reversible and leaves stored paint unchanged',()=>{
  const selection=mask(32,32,x=>x>.5),original=structuredClone(selection),soft=F.featherMask(selection,3);
  assert.deepEqual(selection,original);assert.equal(F.featherMask(selection,0),selection);assert.equal(F.featherMask(selection,3),soft);

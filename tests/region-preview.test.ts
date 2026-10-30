@@ -66,6 +66,6 @@ it('stops all retry and result callbacks on unmount',()=>{
 it('uses a stable worker address under the project path',()=>{
  manager.dispose();vi.stubEnv('BASE_URL','./');history.replaceState(null,'','/facemix/');const requests:any[]=[];
  vi.stubGlobal('Worker',class extends FakeWorker{constructor(...args:any[]){super();requests.push(args);workers.push(this);}});
- manager=new RegionPreviewManager();manager.preview(spec(),'ears');expect(String(requests[0][0])).toBe(new URL('/facemix/workers/region-preview.worker.js',location.origin).href);expect(requests[0]).toHaveLength(1);
+ manager=new RegionPreviewManager();manager.preview(spec(),'ears');expect(String(requests[0][0])).toBe(new URL('/facemix/workers/region-preview.worker.js?v=1.7.0',location.origin).href);expect(requests[0]).toHaveLength(1);
  workers[0].fail();vi.advanceTimersByTime(100);expect(requests[1][0].pathname).toBe('/facemix/workers/region-preview.worker.js');expect(requests[1][0].searchParams.has('retry')).toBe(true);
 });

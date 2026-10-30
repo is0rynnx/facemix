@@ -41,6 +41,6 @@ it('reports an import failure after closing the library',async()=>{
 it('keeps release history collapsed and includes every published checkpoint',()=>{
  const {container}=render(<Changelog/>);const details=container.querySelector('details')!;expect(details.open).toBe(false);
  fireEvent.click(screen.getByText('Changelog'));expect(details.open).toBe(true);
- expect(container.querySelectorAll('ol>li')).toHaveLength(9);expect(container.textContent).toContain('1.6.1');
+ expect(container.querySelectorAll('ol>li')).toHaveLength(10);expect(container.textContent).toContain('1.7.0');expect(container.textContent).toContain('1.6.1');
  for(const commit of ['2969283','52c3ae5','2157ddd','1747809','b44b5f7','f3bfbdb','1c130c3','c464e65'])expect(container.textContent).toContain(commit);
 });

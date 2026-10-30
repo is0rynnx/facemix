@@ -18,7 +18,7 @@ self.onmessage=e=>{const m=e.data;busy=busy.then(async()=>{
 
 async function initialize(m){
 
- template=m.template;importScripts(m.base+'workers/fitting.js?v=1.6.1');self.exports={};importScripts(m.base+'models/vision_bundle.js');
+ template=m.template;importScripts(m.base+'workers/fitting.js?v=1.7.0');self.exports={};importScripts(m.base+'models/vision_bundle.js');
 
  const {FilesetResolver,FaceLandmarker,ImageSegmenter}=self.exports;
 

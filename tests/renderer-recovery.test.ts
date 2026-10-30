@@ -66,7 +66,7 @@ it('uses the stable worker address on a project site',()=>{
  manager.dispose();vi.stubEnv('BASE_URL','./');history.replaceState(null,'','/facemix/');const requests:any[]=[];
  vi.stubGlobal('Worker',class extends FakeWorker{constructor(...args:any[]){super();requests.push(args);}});
  manager=new RenderManager();manager.render(spec());
- expect(String(requests[0][0])).toBe(new URL('/facemix/workers/render.worker.js',location.origin).href);
+ expect(String(requests[0][0])).toBe(new URL('/facemix/workers/render.worker.js?v=1.7.0',location.origin).href);
  expect(requests[0]).toHaveLength(1);
  history.replaceState(null,'','/');
 });

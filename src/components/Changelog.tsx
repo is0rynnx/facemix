@@ -1,6 +1,7 @@
-export const APP_VERSION='1.6.1';
+export const APP_VERSION='1.7.0';
 const releases=[
- {version:APP_VERSION,date:'2026-10-29',changes:['Restart a failed or stalled detector once. Stop preparation if the retry fails.','Close the library before adding photos. Keep face selection above other dialogs.','Add release history to Help.']},
+ {version:APP_VERSION,date:'2026-10-30',changes:['Space eyelid controls along the upper and lower curves. Add lower iris edges.','Exclude ear estimates when the boundary is covered or unclear.','Align region masks with the source warp. Restore failed region previews.','Update Help. Preserve older eye layouts, manual edits, and saved variants.']},
+ {version:'1.6.1',date:'2026-10-29',changes:['Restart a failed or stalled detector once. Stop preparation if the retry fails.','Close the library before adding photos. Keep face selection above other dialogs.','Add release history to Help.']},
  {version:'1.6.0',commit:'2969283',date:'2026-10-29',changes:['Restore rendering after a worker failure. Keep the previous renderer address available.','Remove automatic recovery snapshots and their menu.']},
  {version:'1.6.0',commit:'52c3ae5',date:'2026-10-28',changes:['Refine visible face contours and add upper eyelid points.','Add feathering to source contribution masks. Improve automatic hair removal.']},
  {version:'1.6.0',commit:'2157ddd',date:'2026-10-28',changes:['Match Shape section text to Regions.']},

@@ -41,7 +41,7 @@ export function withMeasuredDetail(project:Project):Project{
  const sources=project.sources.map(source=>{
   const points=new Map(source.landmarks.map(p=>[p.id,p]));
   for(const def of [...measuredDetailDefinitions,...definitions.filter(d=>irisNames[d.id])]){if(!definitions.some(d=>d.id===def.id))continue;const current=points.get(def.id);if(current&&(current.authored||current.locked||(!current.enabled&&!current.autoDisabled)||project.recipe.pins[def.id]))continue;
-   const group=groups.find(ids=>ids.includes(def.id))??[def.id],supported=group.every(id=>measure(source,definitions.find(d=>d.id===id)!));
+   const group=groups.find(ids=>ids.includes(def.id))??[def.id],supported=group.every(id=>measure(source,measuredDetailDefinitions.find(d=>d.id===id)??definitions.find(d=>d.id===id)!));
    const p=supported?measure(source,def):undefined;if(p)points.set(def.id,{id:def.id,x:p[0],y:p[1],enabled:true,locked:false,authored:false,confidence:.8});
    else if(current)points.set(def.id,{...current,enabled:false,autoDisabled:true,confidence:.3,review:'Feature is too small or covered. Place this control manually to use it.'});
   }
