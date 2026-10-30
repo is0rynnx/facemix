@@ -145,10 +145,11 @@ it('keeps only the newest pending region preview and discards stale worker resul
  class RegionWorker {onmessage:any;onerror:any;postMessage=post;terminate=terminate;constructor(){instance=this;}}
  vi.stubGlobal('Worker',RegionWorker);HTMLCanvasElement.prototype.getContext=(()=>({clearRect:()=>{},putImageData:draw})) as any;
  try{
-  const project=newProject(),view=render(<RegionOverlay project={project} region="hair"/>);expect(post).toHaveBeenCalledTimes(1);
+  const project=newProject(),view=render(<RegionOverlay project={project} region="hair"/>);expect(post).not.toHaveBeenCalled();
+  act(()=>instance.onmessage({data:{type:'ready'}}));expect(post).toHaveBeenCalledTimes(1);
   view.rerender(<RegionOverlay project={project} region="neck"/>);view.rerender(<RegionOverlay project={project} region="clothing"/>);expect(post).toHaveBeenCalledTimes(1);
-  act(()=>instance.onmessage({data:{id:post.mock.calls[0][0].id,width:1,height:1,data:new Uint8ClampedArray(4)}}));expect(draw).not.toHaveBeenCalled();expect(post).toHaveBeenCalledTimes(2);expect(post.mock.calls[1][0].region).toBe('clothing');
-  act(()=>instance.onmessage({data:{id:post.mock.calls[1][0].id,width:1,height:1,data:new Uint8ClampedArray(4)}}));expect(draw).toHaveBeenCalledTimes(1);view.unmount();expect(terminate).toHaveBeenCalledOnce();
+  act(()=>instance.onmessage({data:{type:'result',id:post.mock.calls[0][0].id,width:1,height:1,data:new Uint8ClampedArray(4)}}));expect(draw).not.toHaveBeenCalled();expect(post).toHaveBeenCalledTimes(2);expect(post.mock.calls[1][0].region).toBe('clothing');
+  act(()=>instance.onmessage({data:{type:'result',id:post.mock.calls[1][0].id,width:1,height:1,data:new Uint8ClampedArray(4)}}));expect(draw).toHaveBeenCalledTimes(1);view.unmount();expect(terminate).toHaveBeenCalledOnce();
  }finally{vi.stubGlobal('Worker',OriginalWorker);HTMLCanvasElement.prototype.getContext=context;}
 });
 it('does not offer automatic recovery snapshots in the project menu',async()=>{
